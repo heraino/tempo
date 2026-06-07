@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Code — Learn the Basics</title>
+  <style>
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a24;
+      --surface2: #22222f;
+      --border: #2e2e40;
+      --accent: #7c6af7;
+      --accent2: #5eead4;
+      --text: #e8e8f0;
+      --muted: #8888a8;
+      --chat-color: #f97316;
+      --code-color: #7c6af7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15,15,19,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+    }
+    .nav-logo { font-weight: 700; font-size: 15px; color: var(--accent); letter-spacing: -0.3px; }
+    .nav-links { display: flex; gap: 6px; }
+    .nav-links a {
+      color: var(--muted); text-decoration: none; font-size: 13px;
+      padding: 5px 10px; border-radius: 6px; transition: all .2s;
+    }
+    .nav-links a:hover { color: var(--text); background: var(--surface2); }
+
+    /* HERO */
+    .hero {
+      padding: 64px 24px 48px;
+      text-align: center;
+      background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124,106,247,0.15), transparent);
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(124,106,247,0.1); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent); font-size: 12px; font-weight: 600;
+      padding: 4px 12px; border-radius: 20px; margin-bottom: 20px;
+      letter-spacing: 0.5px; text-transform: uppercase;
+    }
+    .hero h1 {
+      font-size: clamp(28px, 8vw, 52px);
+      font-weight: 800; letter-spacing: -1px;
+      line-height: 1.15; margin-bottom: 16px;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p {
+      font-size: clamp(15px, 4vw, 18px);
+      color: var(--muted); max-width: 520px;
+      margin: 0 auto 32px;
+    }
+    .hero-cta {
+      display: inline-block;
+      background: var(--accent); color: #fff;
+      padding: 12px 28px; border-radius: 10px;
+      font-weight: 600; font-size: 15px;
+      text-decoration: none; cursor: pointer; border: none;
+      transition: opacity .2s; letter-spacing: -0.2px;
+    }
+    .hero-cta:hover { opacity: 0.85; }
+
+    /* SECTION */
+    section { padding: 56px 24px; max-width: 680px; margin: 0 auto; }
+    .section-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--accent); margin-bottom: 8px;
+    }
+    h2 {
+      font-size: clamp(22px, 6vw, 32px);
+      font-weight: 800; letter-spacing: -0.5px;
+      margin-bottom: 12px;
+    }
+    .subtitle { color: var(--muted); font-size: 15px; margin-bottom: 32px; }
+
+    /* COMPARISON TOGGLE */
+    .toggle-wrap { display: flex; background: var(--surface); border-radius: 10px; padding: 4px; margin-bottom: 24px; }
+    .toggle-btn {
+      flex: 1; padding: 8px; border: none; background: transparent;
+      color: var(--muted); font-size: 14px; font-weight: 600;
+      border-radius: 7px; cursor: pointer; transition: all .2s;
+    }
+    .toggle-btn.active { background: var(--surface2); color: var(--text); }
+
+    .comparison-panel { display: none; }
+    .comparison-panel.active { display: block; }
+
+    .comparison-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden;
+    }
+    .comparison-header {
+      padding: 14px 18px;
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700; font-size: 15px;
+    }
+    .comparison-header .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+    }
+    .chat-dot { background: var(--chat-color); }
+    .code-dot { background: var(--code-color); }
+    .comparison-body { padding: 18px; }
+    .comparison-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .comparison-item:last-child { border-bottom: none; }
+    .ci-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+    .ci-text strong { display: block; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+    .ci-text span { font-size: 13px; color: var(--muted); }
+
+    /* POWERS GRID */
+    .powers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .power-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px;
+      transition: border-color .2s, transform .2s;
+      cursor: default;
+    }
+    .power-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .power-icon { font-size: 28px; margin-bottom: 10px; }
+    .power-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+    .power-card p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    /* TERMINAL DEMO */
+    .terminal {
+      background: #0d0d0d; border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden; margin-top: 24px;
+    }
+    .terminal-bar {
+      background: var(--surface); padding: 10px 16px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .terminal-bar .t-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+    }
+    .t-red { background: #ff5f57; }
+    .t-yellow { background: #ffbd2e; }
+    .t-green { background: #28c840; }
+    .terminal-bar span { font-size: 12px; color: var(--muted); margin-left: 8px; }
+    .terminal-body { padding: 18px; font-family: "SF Mono", "Fira Code", monospace; font-size: 13px; line-height: 1.7; }
+    .t-prompt { color: var(--accent2); }
+    .t-cmd { color: var(--text); }
+    .t-out { color: var(--muted); }
+    .t-file { color: #86efac; }
+    .t-highlight { color: var(--accent); }
+    .t-line { margin: 2px 0; }
+    .cursor {
+      display: inline-block; width: 8px; height: 14px;
+      background: var(--accent2); vertical-align: middle;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* PROMPTS */
+    .prompts-list { display: flex; flex-direction: column; gap: 10px; }
+    .prompt-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 16px;
+      display: flex; align-items: flex-start; gap: 12px;
+      cursor: pointer; transition: border-color .2s, background .2s;
+      text-align: left; width: 100%;
+    }
+    .prompt-item:hover { border-color: var(--accent); background: var(--surface2); }
+    .prompt-item .p-icon { font-size: 20px; flex-shrink: 0; }
+    .prompt-item .p-text strong { display: block; font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+    .prompt-item .p-text span { font-size: 12px; color: var(--muted); font-family: "SF Mono", monospace; }
+    .prompt-copied {
+      display: none; font-size: 11px; color: var(--accent2);
+      font-weight: 600; margin-left: auto; flex-shrink: 0; align-self: center;
+    }
+    .prompt-item.copied .prompt-copied { display: block; }
+
+    /* QUIZ */
+    .quiz-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 24px;
+    }
+    .quiz-q { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+    .quiz-options { display: flex; flex-direction: column; gap: 8px; }
+    .quiz-opt {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 16px;
+      font-size: 14px; cursor: pointer; text-align: left;
+      transition: all .2s; width: 100%;
+      color: var(--text);
+    }
+    .quiz-opt:hover:not(:disabled) { border-color: var(--accent); }
+    .quiz-opt.correct { background: rgba(94,234,212,0.1); border-color: var(--accent2); color: var(--accent2); }
+    .quiz-opt.wrong { background: rgba(248,113,113,0.1); border-color: #f87171; color: #f87171; }
+    .quiz-feedback { margin-top: 14px; font-size: 14px; min-height: 20px; }
+    .quiz-feedback.good { color: var(--accent2); }
+    .quiz-feedback.bad { color: #f87171; }
+    .quiz-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
+    .quiz-progress { font-size: 12px; color: var(--muted); }
+    .quiz-next {
+      background: var(--accent); color: #fff;
+      border: none; padding: 8px 18px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      display: none; transition: opacity .2s;
+    }
+    .quiz-next:hover { opacity: 0.85; }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border);
+      text-align: center; padding: 32px 24px;
+      color: var(--muted); font-size: 13px;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+
+    /* SCROLL REVEAL */
+    .reveal { opacity: 0; transform: translateY(20px); transition: opacity .5s, transform .5s; }
+    .reveal.visible { opacity: 1; transform: none; }
+
+    /* DIVIDER */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">Claude Code 101</div>
+  <div class="nav-links">
+    <a href="#compare">Compare</a>
+    <a href="#powers">Powers</a>
+    <a href="#demo">Demo</a>
+    <a href="#quiz">Quiz</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-badge">⚡ Interactive Guide</div>
+  <h1>Claude Code is<br><span>not</span> Claude Chat</h1>
+  <p>Claude Chat answers questions. Claude Code <em>builds things</em> — reads your files, writes code, runs commands, and ships to GitHub. Here's what that means in practice.</p>
+  <button class="hero-cta" onclick="document.getElementById('compare').scrollIntoView({behavior:'smooth'})">Start Learning →</button>
+</div>
+
+<hr class="divider" />
+
+<!-- COMPARE -->
+<section id="compare" class="reveal">
+  <div class="section-label">Section 01</div>
+  <h2>Chat vs Code</h2>
+  <p class="subtitle">Two very different tools. Toggle to see how each one works.</p>
+
+  <div class="toggle-wrap">
+    <button class="toggle-btn active" onclick="showPanel('chat', this)">💬 Claude Chat</button>
+    <button class="toggle-btn" onclick="showPanel('code', this)">⚡ Claude Code</button>
+  </div>
+
+  <div id="panel-chat" class="comparison-panel active">
+    <div class="comparison-card">
+      <div class="comparison-header">
+        <div class="dot chat-dot"></div>
+        Claude Chat — Conversational AI
+      </div>
+      <div class="comparison-body">
+        <div class="comparison-item">
+          <div class="ci-icon">🗣️</div>
+          <div class="ci-text">
+            <strong>You get answers</strong>
+            <span>Ask a question, get a text response. Great for explanations, drafting, brainstorming.</span>
+          </div>
+        </div>
+        <div class="comparison-item">
+          <div class="ci-icon">📋</div>
+          <div class="ci-text">
+            <strong>Code is just text</strong>
+            <span>It shows you code in a chat bubble. You copy-paste it yourself.</span>
+          </div>
+        </div>
+        <div class="comparison-item">
+          <div class="ci-icon">🔁</div>
+          <div class="ci-text">
+            <strong>No memory of your project</strong>
+            <span>Every session starts fresh. It can't see your files or what you built last time.</span>
+          </div>
+        </div>
+        <div class="comparison-item">
+          <div class="ci-icon">🚫</div>
+          <div class="ci-text">
+            <strong>Can't take action</strong>
+            <span>It can't create files, run commands, commit to Git, or deploy anything.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-code" class="comparison-panel">
+    <div class="comparison-card">
+      <div class="comparison-header">
+        <div class="dot code-dot"></div>
+        Claude Code — Agentic Dev Tool
+      </div>
+      <div class="comparison-body">
+        <div class="comparison-item">
+          <div class="ci-icon">🏗️</div>
+          <div class="ci-text">
+            <strong>You get results</strong>
+            <span>Describe what you want built. It writes the code, creates the files, done.</span>
+          </div>
+        </div>
+        <div class="comparison-item">
+          <div class="ci-icon">📂</div>
+          <div class="ci-text">
+            <strong>Reads your entire codebase</strong>
+            <span>It understands your project structure, existing code, and conventions before touching anything.</span>
+          </div>
+        </div>
+        <div class="comparison-item">
+          <div class="ci-icon">🔄</div>
+          <div class="ci-text">
+            <strong>Works across sessions</strong>
+            <span>Changes are committed to Git. Next session, the code is still there — your repo is the memory.</span>
+          </div>
+        </div>
+        <div class="comparison-item">
+          <div class="ci-icon">🚀</div>
+          <div class="ci-text">
+            <strong>Takes real action</strong>
+            <span>Creates files, runs tests, commits code, pushes to GitHub, sets up deployments.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- POWERS -->
+<section id="powers" class="reveal">
+  <div class="section-label">Section 02</div>
+  <h2>What Claude Code can do</h2>
+  <p class="subtitle">Things that are impossible or painfully slow in a chat window.</p>
+
+  <div class="powers-grid">
+    <div class="power-card">
+      <div class="power-icon">🔍</div>
+      <h3>Understand any codebase</h3>
+      <p>Point it at a project and ask "how does the auth system work?" — it reads the actual files and explains it precisely.</p>
+    </div>
+    <div class="power-card">
+      <div class="power-icon">✏️</div>
+      <h3>Edit files directly</h3>
+      <p>No copy-paste. It opens the file, makes the change, saves it. Multi-file refactors in seconds.</p>
+    </div>
+    <div class="power-card">
+      <div class="power-icon">🐛</div>
+      <h3>Find and fix bugs</h3>
+      <p>Show it an error message. It traces the root cause across files and fixes it — not just the symptom.</p>
+    </div>
+    <div class="power-card">
+      <div class="power-icon">🔀</div>
+      <h3>Commit and push to GitHub</h3>
+      <p>Every change goes into Git with a meaningful commit message, pushed automatically. Full audit trail.</p>
+    </div>
+    <div class="power-card">
+      <div class="power-icon">🌐</div>
+      <h3>Set up deployments</h3>
+      <p>Configure GitHub Pages, write CI/CD pipelines, or set up hosting — all from a plain English request.</p>
+    </div>
+    <div class="power-card">
+      <div class="power-icon">🧪</div>
+      <h3>Run and fix tests</h3>
+      <p>Run your test suite, read the failures, fix the code, re-run. Loop until green — without you touching a terminal.</p>
+    </div>
+    <div class="power-card">
+      <div class="power-icon">📦</div>
+      <h3>Scaffold entire projects</h3>
+      <p>Say "build me a React app with login and a dashboard." It creates the folder structure, all the files, wires it up.</p>
+    </div>
+    <div class="power-card">
+      <div class="power-icon">🤔</div>
+      <h3>Explain decisions</h3>
+      <p>Ask "why is this written this way?" — it reads the context, the git history, and gives you a real answer.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- DEMO -->
+<section id="demo" class="reveal">
+  <div class="section-label">Section 03</div>
+  <h2>See it in action</h2>
+  <p class="subtitle">A real Claude Code session — building and pushing a feature from scratch.</p>
+
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="t-dot t-red"></div>
+      <div class="t-dot t-yellow"></div>
+      <div class="t-dot t-green"></div>
+      <span>claude-code session</span>
+    </div>
+    <div class="terminal-body" id="terminal-content">
+      <div class="t-line"><span class="t-prompt">You:</span> <span class="t-cmd">Add a dark mode toggle to my app</span></div>
+      <div class="t-line" style="height:8px"></div>
+      <div class="t-line"><span class="t-out">Reading codebase...</span></div>
+      <div class="t-line"><span class="t-out">Found </span><span class="t-file">src/App.tsx</span><span class="t-out">, </span><span class="t-file">styles/globals.css</span></div>
+      <div class="t-line" style="height:8px"></div>
+      <div class="t-line"><span class="t-out">Creating </span><span class="t-file">src/hooks/useDarkMode.ts</span></div>
+      <div class="t-line"><span class="t-out">Editing  </span><span class="t-file">src/App.tsx</span><span class="t-out"> — added toggle button</span></div>
+      <div class="t-line"><span class="t-out">Editing  </span><span class="t-file">styles/globals.css</span><span class="t-out"> — added dark theme vars</span></div>
+      <div class="t-line" style="height:8px"></div>
+      <div class="t-line"><span class="t-out">Running  </span><span class="t-highlight">npm test</span><span class="t-out"> ... </span><span class="t-file">✓ 12 passed</span></div>
+      <div class="t-line" style="height:8px"></div>
+      <div class="t-line"><span class="t-out">Committing: </span><span class="t-highlight">"Add dark mode toggle with localStorage persistence"</span></div>
+      <div class="t-line"><span class="t-out">Pushing to </span><span class="t-file">origin/main</span><span class="t-out"> ✓</span></div>
+      <div class="t-line" style="height:8px"></div>
+      <div class="t-line"><span class="t-prompt">Claude:</span> <span class="t-cmd">Done. Toggle is in the top-right corner, remembers your preference.</span></div>
+      <div class="t-line"><span class="cursor"></span></div>
+    </div>
+  </div>
+
+  <p style="font-size:13px; color:var(--muted); margin-top:14px; text-align:center;">
+    3 files changed, tests passed, committed, and deployed — from one sentence.
+  </p>
+</section>
+
+<hr class="divider" />
+
+<!-- TRY IT -->
+<section id="try" class="reveal">
+  <div class="section-label">Section 04</div>
+  <h2>Try these prompts</h2>
+  <p class="subtitle">Tap to copy a prompt, then paste it into Claude Code right now.</p>
+
+  <div class="prompts-list">
+    <button class="prompt-item" onclick="copyPrompt(this, 'Explain the overall structure of this codebase in plain English')">
+      <div class="p-icon">🗺️</div>
+      <div class="p-text">
+        <strong>Understand a codebase instantly</strong>
+        <span>"Explain the overall structure of this codebase in plain English"</span>
+      </div>
+      <div class="prompt-copied">Copied!</div>
+    </button>
+    <button class="prompt-item" onclick="copyPrompt(this, 'Find all the bugs in this file and fix them one by one')">
+      <div class="p-icon">🐛</div>
+      <div class="p-text">
+        <strong>Squash bugs in one shot</strong>
+        <span>"Find all the bugs in this file and fix them one by one"</span>
+      </div>
+      <div class="prompt-copied">Copied!</div>
+    </button>
+    <button class="prompt-item" onclick="copyPrompt(this, 'Refactor this code to be cleaner and more readable, then commit the changes')">
+      <div class="p-icon">✨</div>
+      <div class="p-text">
+        <strong>Clean up messy code</strong>
+        <span>"Refactor this code to be cleaner and more readable, then commit"</span>
+      </div>
+      <div class="prompt-copied">Copied!</div>
+    </button>
+    <button class="prompt-item" onclick="copyPrompt(this, 'Write tests for all the untested functions in this project and make sure they pass')">
+      <div class="p-icon">🧪</div>
+      <div class="p-text">
+        <strong>Add test coverage</strong>
+        <span>"Write tests for all untested functions and make sure they pass"</span>
+      </div>
+      <div class="prompt-copied">Copied!</div>
+    </button>
+    <button class="prompt-item" onclick="copyPrompt(this, 'Review my last commit and tell me if there are any issues or improvements')">
+      <div class="p-icon">👀</div>
+      <div class="p-text">
+        <strong>Code review your last commit</strong>
+        <span>"Review my last commit and tell me if there are any issues"</span>
+      </div>
+      <div class="prompt-copied">Copied!</div>
+    </button>
+    <button class="prompt-item" onclick="copyPrompt(this, 'Build a simple REST API with 3 endpoints and deploy it')">
+      <div class="p-icon">🚀</div>
+      <div class="p-text">
+        <strong>Ship something from scratch</strong>
+        <span>"Build a simple REST API with 3 endpoints and deploy it"</span>
+      </div>
+      <div class="prompt-copied">Copied!</div>
+    </button>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- QUIZ -->
+<section id="quiz" class="reveal">
+  <div class="section-label">Section 05</div>
+  <h2>Quick Knowledge Check</h2>
+  <p class="subtitle">See what you've learned. 4 questions.</p>
+
+  <div class="quiz-card">
+    <div class="quiz-q" id="quiz-question"></div>
+    <div class="quiz-options" id="quiz-options"></div>
+    <div class="quiz-feedback" id="quiz-feedback"></div>
+    <div class="quiz-nav">
+      <div class="quiz-progress" id="quiz-progress"></div>
+      <button class="quiz-next" id="quiz-next" onclick="nextQuestion()">Next →</button>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<footer>
+  <p>Built with Claude Code · <a href="https://claude.ai/code" target="_blank">claude.ai/code</a></p>
+  <p style="margin-top:6px">Your repo: <a href="https://github.com/heraino/hello-world" target="_blank">github.com/heraino/hello-world</a></p>
+</footer>
+
+<script>
+  // Toggle comparison
+  function showPanel(name, btn) {
+    document.querySelectorAll('.comparison-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  // Copy prompt
+  function copyPrompt(el, text) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    el.classList.add('copied');
+    setTimeout(() => el.classList.remove('copied'), 2000);
+  }
+
+  // Scroll reveal
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // Quiz
+  const questions = [
+    {
+      q: "You ask Claude Chat to add a feature to your app. What happens?",
+      opts: [
+        "It writes and saves the code directly to your files",
+        "It shows you the code in the chat — you copy-paste it yourself",
+        "It commits the change to GitHub automatically",
+        "It runs your tests to verify the feature works"
+      ],
+      correct: 1,
+      feedback: {
+        good: "Exactly. Claude Chat gives you text — you do the rest. Claude Code does the work itself.",
+        bad: "Nope. Claude Chat only produces text responses. It cannot touch your files or run commands."
+      }
+    },
+    {
+      q: "You close your Claude Code session and start a new one the next day. Is your previous work lost?",
+      opts: [
+        "Yes — Claude Code forgets everything between sessions",
+        "No — the code was committed to Git, so it's all still there",
+        "Partially — only the last file is saved",
+        "It depends on whether you said 'save' at the end"
+      ],
+      correct: 1,
+      feedback: {
+        good: "Right! Git is the persistent memory. Claude Code commits changes, so they survive across sessions.",
+        bad: "Not quite. Claude Code commits changes to Git as it works, so everything is preserved between sessions."
+      }
+    },
+    {
+      q: "Which of these can Claude Code do that Claude Chat cannot?",
+      opts: [
+        "Explain what a function does",
+        "Suggest variable names",
+        "Run your test suite and fix failing tests",
+        "Write a regex pattern"
+      ],
+      correct: 2,
+      feedback: {
+        good: "Yes! Running commands, reading test output, and acting on it — that's agentic behavior Chat can't do.",
+        bad: "The others are just text generation — both tools can do those. Running tests requires real execution."
+      }
+    },
+    {
+      q: "What's the best mental model for how Claude Code works?",
+      opts: [
+        "A smarter search engine for coding questions",
+        "A senior developer with access to your terminal and codebase",
+        "A code autocomplete that works on whole files",
+        "A chatbot that knows a lot about programming"
+      ],
+      correct: 1,
+      feedback: {
+        good: "Perfect mental model. It reads your code, understands context, takes action, and reports back — like a dev on your team.",
+        bad: "Think bigger. Claude Code has full access to your files, can run commands, push to Git, and deploy — it takes real action."
+      }
+    }
+  ];
+
+  let current = 0;
+  let answered = false;
+
+  function renderQuestion() {
+    const q = questions[current];
+    document.getElementById('quiz-question').textContent = q.q;
+    document.getElementById('quiz-feedback').textContent = '';
+    document.getElementById('quiz-feedback').className = 'quiz-feedback';
+    document.getElementById('quiz-next').style.display = 'none';
+    document.getElementById('quiz-progress').textContent = `${current + 1} / ${questions.length}`;
+    answered = false;
+
+    const opts = document.getElementById('quiz-options');
+    opts.innerHTML = '';
+    q.opts.forEach((opt, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'quiz-opt';
+      btn.textContent = opt;
+      btn.onclick = () => answer(i);
+      opts.appendChild(btn);
+    });
+  }
+
+  function answer(i) {
+    if (answered) return;
+    answered = true;
+    const q = questions[current];
+    const btns = document.querySelectorAll('.quiz-opt');
+    btns.forEach(b => b.disabled = true);
+    btns[i].classList.add(i === q.correct ? 'correct' : 'wrong');
+    if (i !== q.correct) btns[q.correct].classList.add('correct');
+
+    const fb = document.getElementById('quiz-feedback');
+    fb.textContent = i === q.correct ? '✓ ' + q.feedback.good : '✗ ' + q.feedback.bad;
+    fb.className = 'quiz-feedback ' + (i === q.correct ? 'good' : 'bad');
+    document.getElementById('quiz-next').style.display = 'block';
+    if (current === questions.length - 1) document.getElementById('quiz-next').textContent = 'Finish ✓';
+  }
+
+  function nextQuestion() {
+    if (current < questions.length - 1) {
+      current++;
+      renderQuestion();
+    } else {
+      const card = document.querySelector('.quiz-card');
+      card.innerHTML = `
+        <div style="text-align:center;padding:16px 0">
+          <div style="font-size:48px;margin-bottom:12px">🎉</div>
+          <h3 style="font-size:20px;margin-bottom:8px">You're ready to build!</h3>
+          <p style="color:var(--muted);font-size:14px;max-width:340px;margin:0 auto">
+            You now understand what makes Claude Code different. Go back to the chat and tell it what you want to build next.
+          </p>
+        </div>
+      `;
+    }
+  }
+
+  renderQuestion();
+</script>
+</body>
+</html>
