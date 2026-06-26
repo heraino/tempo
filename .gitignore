@@ -22,8 +22,11 @@
 .DS_Store
 *.pem
 
-# env files — never commit secrets
-.env*
+# env files — never commit secrets; .env.example is safe (no real values)
+.env
+.env.local
+.env.*.local
+.env.production
 
 # vercel
 .vercel
