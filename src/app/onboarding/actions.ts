@@ -1,9 +1,13 @@
 "use server"
 
-import { auth } from "@/auth"
+import { auth, signOut } from "@/auth"
 import { db } from "@/lib/db"
 import { trainingPlans } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
+
+export async function signOutAction() {
+  await signOut({ redirectTo: "/" })
+}
 
 export async function savePlan(formData: FormData) {
   const session = await auth()
