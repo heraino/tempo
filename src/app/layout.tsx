@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
+import { NavBar } from "@/components/NavBar";
 
 // Loads the Geist font from Google Fonts at build time (not at runtime in the browser).
 const geist = Geist({
@@ -24,7 +25,8 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-[var(--font-geist),system-ui,sans-serif]">
-        {children}
+        <div className="pb-20">{children}</div>
+        <NavBar />
       </body>
     </html>
   );

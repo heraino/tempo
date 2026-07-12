@@ -1,11 +1,8 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
-
-// The server action is in a separate file so it can use "use server" cleanly
-// alongside this client component.
-import { savePlan } from "./actions"
+import { savePlan, signOutAction } from "./actions"
 
 const ROTATION_WEEKS = ["A", "B", "C", "D"] as const
 
@@ -33,10 +30,19 @@ export default function OnboardingPage() {
   return (
     <main className="flex min-h-screen items-start justify-center bg-white px-6 py-12">
       <div className="w-full max-w-lg">
-        <h1 className="text-3xl font-bold text-gray-900">Set up your plan</h1>
-        <p className="mt-2 text-gray-500">
-          Upload your training plan and tell Tempo where you are in the cycle.
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Your plan</h1>
+            <p className="mt-2 text-gray-500">
+              Upload your training plan and tell Tempo where you are in the cycle.
+            </p>
+          </div>
+          <form action={signOutAction}>
+            <button type="submit" className="text-sm text-gray-400 hover:text-gray-600 mt-1">
+              Sign out
+            </button>
+          </form>
+        </div>
 
         <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-6">
           {/* Plan title */}
