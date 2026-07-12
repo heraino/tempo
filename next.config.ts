@@ -1,14 +1,14 @@
 import type { NextConfig } from "next"
 
-// Provide a placeholder DATABASE_URL during `next build` when the real URL
-// isn't available yet (CI, fresh clone before .env.local is set up).
-// Neon stores the URL but doesn't open a connection until a query runs,
-// so this is safe — it only prevents a throw at module-load time.
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL =
     "postgresql://user:password@localhost:5432/tempo"
 }
 
-const nextConfig: NextConfig = {}
+const nextConfig: NextConfig = {
+  // fit-file-parser is CommonJS — tell Next.js to load it at runtime
+  // rather than trying to bundle it as ESM.
+  serverExternalPackages: ["fit-file-parser"],
+}
 
 export default nextConfig
