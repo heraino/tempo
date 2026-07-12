@@ -1,37 +1,187 @@
 import { auth, signOut } from "@/auth"
 import { redirect } from "next/navigation"
+import Link from "next/link"
+import { db } from "@/lib/db"
+import { trainingPlans, workoutLogs } from "@/lib/db/schema"
+import { eq, desc } from "drizzle-orm"
+import { getTodayInfo, extractWorkout, type RotationWeek } from "@/lib/rotation"
 
-// This is a protected page. `auth()` reads the session from the cookie.
-// If there's no session, we redirect to sign-in before rendering anything.
+// Helpers for displaying workout metrics ─────────────────────────────────────
+
+function fmtPace(avgSpeedMps: number | null): string {
+  if (!avgSpeedMps || avgSpeedMps <= 0) return "—"
+  const secsPerMile = 1609.344 / avgSpeedMps
+  const mins = Math.floor(secsPerMile / 60)
+  const secs = Math.round(secsPerMile % 60)
+  return `${mins}:${secs.toString().padStart(2, "0")} /mi`
+}
+
+function fmtDistance(meters: number | null): string {
+  if (meters == null) return "—"
+  return `${(meters / 1609.344).toFixed(2)} mi`
+}
+
+function fmtDuration(secs: number | null): string {
+  if (secs == null) return "—"
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = Math.round(secs % 60)
+  return h > 0
+    ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+    : `${m}:${s.toString().padStart(2, "0")}`
+}
+
+function fmtDate(d: Date): string {
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default async function DashboardPage() {
   const session = await auth()
+  if (!session?.user?.id) redirect("/sign-in")
 
-  if (!session?.user) redirect("/sign-in")
+  const userId = session.user.id
+
+  // Load training plan and recent workouts in parallel
+  const [planRows, recentLogs] = await Promise.all([
+    db.select().from(trainingPlans).where(eq(trainingPlans.userId, userId)).limit(1),
+    db
+      .select()
+      .from(workoutLogs)
+      .where(eq(workoutLogs.userId, userId))
+      .orderBy(desc(workoutLogs.startTime))
+      .limit(10),
+  ])
+
+  const plan = planRows[0]
+
+  // No plan yet → prompt onboarding
+  if (!plan) redirect("/onboarding")
+
+  const anchorDate = new Date(plan.startDate + "T00:00:00")
+  const { week, dayName, today } = getTodayInfo(anchorDate, plan.startWeek as RotationWeek)
+  const todaysWorkout = extractWorkout(plan.content, week, dayName)
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-white px-6">
-      <div className="text-center max-w-lg">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Hi, {session.user.name ?? session.user.email}!
-        </h1>
-        <p className="mt-4 text-gray-500">
-          Your personalized training dashboard is coming in Milestone 3.
-        </p>
+    <main className="min-h-screen bg-gray-50 px-4 py-8">
+      <div className="max-w-2xl mx-auto space-y-6">
 
-        <form
-          action={async () => {
-            "use server"
-            await signOut({ redirectTo: "/" })
-          }}
-          className="mt-8"
-        >
-          <button
-            type="submit"
-            className="rounded-full border border-gray-200 px-6 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            Sign out
-          </button>
-        </form>
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Tempo</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {today.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+            </p>
+          </div>
+          <form action={async () => { "use server"; await signOut({ redirectTo: "/" }) }}>
+            <button type="submit" className="text-sm text-gray-500 hover:text-gray-700">
+              Sign out
+            </button>
+          </form>
+        </div>
+
+        {/* Today's workout */}
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">
+                Week {week} · {dayName}
+              </p>
+              <h2 className="text-lg font-bold text-gray-900 mt-1">Today&apos;s workout</h2>
+            </div>
+            <Link
+              href="/log"
+              className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            >
+              + Log workout
+            </Link>
+          </div>
+
+          {todaysWorkout ? (
+            <div className="mt-4 prose prose-sm prose-gray max-w-none text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">
+              {todaysWorkout}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-gray-400">
+              Could not find today&apos;s section in your plan. Check that your plan uses the
+              headings <code>### {dayName}</code> inside <code># Week {week}</code>.
+            </p>
+          )}
+        </section>
+
+        {/* Plan info */}
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Active plan
+              </p>
+              <p className="text-sm font-medium text-gray-800 mt-1">{plan.title}</p>
+            </div>
+            <Link href="/onboarding" className="text-sm text-orange-500 hover:underline">
+              Update plan
+            </Link>
+          </div>
+        </section>
+
+        {/* Recent workouts */}
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">Recent workouts</h2>
+
+          {recentLogs.length === 0 ? (
+            <p className="text-sm text-gray-400">
+              No workouts logged yet.{" "}
+              <Link href="/log" className="text-orange-500 hover:underline">
+                Upload your first one →
+              </Link>
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {recentLogs.map((log) => (
+                <li
+                  key={log.id}
+                  className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-800 capitalize">
+                      {log.sport ?? "Activity"}{" "}
+                      {log.perceivedEffort && (
+                        <span className="text-gray-400 font-normal">
+                          · effort {log.perceivedEffort}/5
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {fmtDate(new Date(log.startTime))}
+                    </p>
+                    {log.notes && (
+                      <p className="text-xs text-gray-500 mt-1 italic">{log.notes}</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0 ml-4">
+                    <p className="text-sm font-semibold text-gray-800">
+                      {fmtDistance(log.totalDistanceM)}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {fmtDuration(log.totalTimerSecs)} · avg HR {log.avgHr ?? "—"}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {fmtPace(log.avgSpeedMps)}
+                      {log.hrDriftBpm != null && (
+                        <span className={log.hrDriftBpm > 5 ? " text-amber-500" : ""}>
+                          {" "}· drift {log.hrDriftBpm > 0 ? "+" : ""}{log.hrDriftBpm.toFixed(1)} bpm
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
       </div>
     </main>
   )
