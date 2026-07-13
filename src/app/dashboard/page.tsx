@@ -4,7 +4,7 @@ import Link from "next/link"
 import { db } from "@/lib/db"
 import { trainingPlans, workoutLogs } from "@/lib/db/schema"
 import { eq, desc } from "drizzle-orm"
-import { getTodayInfo, extractWorkout, type RotationWeek } from "@/lib/rotation"
+import { getTodayInfo, getDateInfo, extractWorkout, type RotationWeek } from "@/lib/rotation"
 
 // Helpers for displaying workout metrics ─────────────────────────────────────
 
@@ -63,6 +63,16 @@ export default async function DashboardPage() {
   const { week, dayName, today } = getTodayInfo(anchorDate, plan.startWeek as RotationWeek)
   const todaysWorkout = extractWorkout(plan.content, week, dayName)
 
+  // Build the next 7 days
+  const upcomingDays = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(today)
+    date.setDate(today.getDate() + i + 1)
+    const { week: w, dayName: dn } = getDateInfo(date, anchorDate, plan.startWeek as RotationWeek)
+    const workout = extractWorkout(plan.content, w, dn)
+    const firstLine = workout.split("\n").find(l => l.trim() && !l.startsWith("#"))?.trim() ?? ""
+    return { date, week: w, dayName: dn, firstLine }
+  })
+
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
       <div className="max-w-2xl mx-auto space-y-6">
@@ -102,6 +112,41 @@ export default async function DashboardPage() {
               headings <code>### {dayName}</code> inside <code># Week {week}</code>.
             </p>
           )}
+        </section>
+
+        {/* Upcoming workouts */}
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">Next 7 days</h2>
+          <ul className="space-y-0">
+            {upcomingDays.map(({ date, week: w, dayName: dn, firstLine }) => (
+              <li
+                key={date.toISOString()}
+                className="flex items-start gap-4 py-3 border-b border-gray-50 last:border-0"
+              >
+                {/* Date column */}
+                <div className="w-10 shrink-0 text-center">
+                  <p className="text-[11px] font-semibold uppercase text-gray-400 leading-none">
+                    {date.toLocaleDateString("en-US", { weekday: "short" })}
+                  </p>
+                  <p className="text-lg font-bold text-gray-800 leading-tight mt-0.5">
+                    {date.getDate()}
+                  </p>
+                </div>
+
+                {/* Workout info */}
+                <div className="flex-1 min-w-0 pt-0.5">
+                  <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">
+                    Week {w}
+                  </span>
+                  {firstLine ? (
+                    <p className="text-sm text-gray-700 truncate">{firstLine}</p>
+                  ) : (
+                    <p className="text-sm text-gray-300">Rest or no entry</p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
 
         {/* Plan info */}

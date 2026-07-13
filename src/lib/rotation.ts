@@ -30,6 +30,12 @@ export function getTodayInfo(anchorDate: Date, anchorWeek: RotationWeek) {
   return { week, dayName, today }
 }
 
+export function getDateInfo(date: Date, anchorDate: Date, anchorWeek: RotationWeek) {
+  const week = getRotationWeek(date, anchorDate, anchorWeek)
+  const dayName = DAY_NAMES[date.getDay()]
+  return { week, dayName }
+}
+
 // Extracts the section of the plan markdown for a given week and day.
 export function extractWorkout(
   markdown: string,
