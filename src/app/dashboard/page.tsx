@@ -5,37 +5,7 @@ import { db } from "@/lib/db"
 import { trainingPlans, workoutLogs } from "@/lib/db/schema"
 import { eq, desc } from "drizzle-orm"
 import { getTodayInfo, getDateInfo, extractWorkout, type RotationWeek } from "@/lib/rotation"
-
-// Helpers for displaying workout metrics ─────────────────────────────────────
-
-function fmtPace(avgSpeedMps: number | null): string {
-  if (!avgSpeedMps || avgSpeedMps <= 0) return "—"
-  const secsPerMile = 1609.344 / avgSpeedMps
-  const mins = Math.floor(secsPerMile / 60)
-  const secs = Math.round(secsPerMile % 60)
-  return `${mins}:${secs.toString().padStart(2, "0")} /mi`
-}
-
-function fmtDistance(meters: number | null): string {
-  if (meters == null) return "—"
-  return `${(meters / 1609.344).toFixed(2)} mi`
-}
-
-function fmtDuration(secs: number | null): string {
-  if (secs == null) return "—"
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  const s = Math.round(secs % 60)
-  return h > 0
-    ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
-    : `${m}:${s.toString().padStart(2, "0")}`
-}
-
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+import { fmtPace, fmtDistance, fmtDuration, fmtDate } from "@/lib/fmt"
 
 export default async function DashboardPage() {
   const session = await auth()
@@ -176,46 +146,57 @@ export default async function DashboardPage() {
               </Link>
             </p>
           ) : (
-            <ul className="space-y-3">
-              {recentLogs.map((log) => (
-                <li
-                  key={log.id}
-                  className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 capitalize">
-                      {log.sport ?? "Activity"}{" "}
-                      {log.perceivedEffort && (
-                        <span className="text-gray-400 font-normal">
-                          · effort {log.perceivedEffort}/5
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {fmtDate(new Date(log.startTime))}
-                    </p>
-                    {log.notes && (
-                      <p className="text-xs text-gray-500 mt-1 italic">{log.notes}</p>
-                    )}
-                  </div>
-                  <div className="text-right shrink-0 ml-4">
-                    <p className="text-sm font-semibold text-gray-800">
-                      {fmtDistance(log.totalDistanceM)}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {fmtDuration(log.totalTimerSecs)} · avg HR {log.avgHr ?? "—"}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {fmtPace(log.avgSpeedMps)}
-                      {log.hrDriftBpm != null && (
-                        <span className={log.hrDriftBpm > 5 ? " text-amber-500" : ""}>
-                          {" "}· drift {log.hrDriftBpm > 0 ? "+" : ""}{log.hrDriftBpm.toFixed(1)} bpm
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </li>
-              ))}
+            <ul className="space-y-0 divide-y divide-gray-50">
+              {recentLogs.map((log) => {
+                const sport = log.sport
+                  ? log.sport.charAt(0).toUpperCase() + log.sport.slice(1)
+                  : "Activity"
+                return (
+                  <li key={log.id}>
+                    <Link
+                      href={`/workout/${log.id}`}
+                      className="flex items-center justify-between py-4 gap-4 hover:bg-gray-50 -mx-2 px-2 rounded-xl transition-colors"
+                    >
+                      {/* Left: sport, date, effort */}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-gray-900">{sport}</p>
+                          {log.perceivedEffort && (
+                            <span className="text-[10px] font-semibold bg-orange-50 text-orange-500 rounded-full px-2 py-0.5">
+                              {log.perceivedEffort}/5
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {fmtDate(new Date(log.startTime))}
+                        </p>
+                        {/* Key stats row */}
+                        <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
+                          <span className="font-semibold text-gray-800">{fmtDistance(log.totalDistanceM)}</span>
+                          <span className="text-gray-300">·</span>
+                          <span>{fmtDuration(log.totalTimerSecs)}</span>
+                          <span className="text-gray-300">·</span>
+                          <span>{fmtPace(log.avgSpeedMps)}</span>
+                        </div>
+                        {/* HR row */}
+                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                          {log.avgHr && <span>HR {log.avgHr} bpm</span>}
+                          {log.hrDriftBpm != null && (
+                            <span className={log.hrDriftBpm > 5 ? "text-amber-500" : ""}>
+                              drift {log.hrDriftBpm > 0 ? "+" : ""}{log.hrDriftBpm.toFixed(1)} bpm
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Right: chevron */}
+                      <svg className="shrink-0 text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 18l6-6-6-6" />
+                      </svg>
+                    </Link>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </section>
