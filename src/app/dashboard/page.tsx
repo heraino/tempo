@@ -94,31 +94,38 @@ export default async function DashboardPage() {
           <h2 className="text-lg font-bold text-gray-900 mb-4">Next 7 days</h2>
           <ul className="space-y-0">
             {upcomingDays.map(({ date, week: w, dayName: dn, firstLine }) => (
-              <li
-                key={date.toISOString()}
-                className="flex items-start gap-4 py-3 border-b border-gray-50 last:border-0"
-              >
-                {/* Date column */}
-                <div className="w-10 shrink-0 text-center">
-                  <p className="text-[11px] font-semibold uppercase text-gray-400 leading-none">
-                    {date.toLocaleDateString("en-US", { weekday: "short" })}
-                  </p>
-                  <p className="text-lg font-bold text-gray-800 leading-tight mt-0.5">
-                    {date.getDate()}
-                  </p>
-                </div>
+              <li key={date.toISOString()}>
+                <Link
+                  href={`/plan/${w}/${dn}`}
+                  className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded-xl transition-colors"
+                >
+                  {/* Date column */}
+                  <div className="w-10 shrink-0 text-center">
+                    <p className="text-[11px] font-semibold uppercase text-gray-400 leading-none">
+                      {date.toLocaleDateString("en-US", { weekday: "short" })}
+                    </p>
+                    <p className="text-lg font-bold text-gray-800 leading-tight mt-0.5">
+                      {date.getDate()}
+                    </p>
+                  </div>
 
-                {/* Workout info */}
-                <div className="flex-1 min-w-0 pt-0.5">
-                  <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">
-                    Week {w}
-                  </span>
-                  {firstLine ? (
-                    <p className="text-sm text-gray-700 truncate">{firstLine}</p>
-                  ) : (
-                    <p className="text-sm text-gray-300">Rest or no entry</p>
-                  )}
-                </div>
+                  {/* Workout info */}
+                  <div className="flex-1 min-w-0 pt-0.5">
+                    <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">
+                      Week {w}
+                    </span>
+                    {firstLine ? (
+                      <p className="text-sm text-gray-700 truncate">{firstLine}</p>
+                    ) : (
+                      <p className="text-sm text-gray-300">Rest or no entry</p>
+                    )}
+                  </div>
+
+                  {/* Chevron */}
+                  <svg className="shrink-0 text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </Link>
               </li>
             ))}
           </ul>
