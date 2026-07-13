@@ -73,9 +73,14 @@ export default async function DashboardPage() {
           </div>
 
           {todaysWorkout ? (
-            <div className="mt-4 prose prose-sm prose-gray max-w-none text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">
-              {todaysWorkout}
-            </div>
+            <Link href="/plan/today" className="block mt-4 group">
+              <div className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed line-clamp-4">
+                {todaysWorkout}
+              </div>
+              <p className="mt-3 text-sm font-medium text-orange-500 group-hover:underline">
+                View full workout →
+              </p>
+            </Link>
           ) : (
             <p className="mt-4 text-sm text-gray-400">
               Could not find today&apos;s section in your plan. Check that your plan uses the
