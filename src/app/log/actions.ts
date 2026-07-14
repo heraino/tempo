@@ -63,40 +63,48 @@ export async function uploadWorkout(formData: FormData) {
   const sha256 = createHash("sha256").update(fitBuffer).digest("hex")
 
   // ── 7. Duplicate check ───────────────────────────────────────────────────────
+  // Block only when BOTH the fit_file AND a workout_log exist for this hash.
+  // If the workout was deleted, the fit_file record stays but the workout is gone —
+  // in that case fall through and re-create the workout using the existing fit_file.
   const existingFile = await findFitFileByUserAndSha256(userId, sha256)
   if (existingFile) {
     const existingWorkout = await findWorkoutByFitFileId(existingFile.id, userId)
-    return {
-      error: "This workout has already been uploaded",
-      workoutId: existingWorkout?.id ?? null,
+    if (existingWorkout) {
+      return {
+        error: "This workout has already been uploaded",
+        workoutId: existingWorkout.id,
+      }
     }
   }
 
-  // ── 8. Upload source file to Blob (before parsing — preserves file on failure) ─
-  let blobUrl: string
-  try {
-    const upload = await uploadRawFile(rawBuffer, file.name, userId, sha256)
-    blobUrl = upload.url
-  } catch (err) {
-    console.error("Blob upload error:", err)
-    return { error: "Failed to store source file. Please try again." }
+  // ── 8 & 9. Upload to Blob + insert fit_file (skipped when reusing existing) ───
+  let fitFile = existingFile
+  if (!fitFile) {
+    let blobUrl = ""
+    try {
+      const upload = await uploadRawFile(rawBuffer, file.name, userId, sha256)
+      blobUrl = upload.url
+    } catch (err) {
+      console.error("Blob upload error:", err)
+      return { error: "Failed to store source file. Please try again." }
+    }
+
+    try {
+      fitFile = await createFitFile({
+        userId,
+        sha256,
+        fileName: file.name,
+        fileSizeBytes: rawBuffer.length,
+        blobUrl,
+        parserVersion: PARSER_VERSION,
+      })
+    } catch (err) {
+      console.error("fit_file insert error:", err)
+      return { error: "Failed to record source file metadata" }
+    }
   }
 
-  // ── 9. Insert fit_file record ─────────────────────────────────────────────────
-  let fitFile
-  try {
-    fitFile = await createFitFile({
-      userId,
-      sha256,
-      fileName: file.name,
-      fileSizeBytes: rawBuffer.length,
-      blobUrl,
-      parserVersion: PARSER_VERSION,
-    })
-  } catch (err) {
-    console.error("fit_file insert error:", err)
-    return { error: "Failed to record source file metadata" }
-  }
+  if (!fitFile) return { error: "Internal: failed to obtain fit file record" }
 
   // ── 10. Parse FIT ─────────────────────────────────────────────────────────────
   // Blob and fit_file record are preserved if parsing fails — raw file is safe.
