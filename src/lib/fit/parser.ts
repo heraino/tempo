@@ -291,8 +291,15 @@ export async function parseFitBuffer(buffer: Buffer): Promise<ParsedWorkout> {
     avgHr: n(session.avg_heart_rate),
     maxHr: n(session.max_heart_rate),
 
-    avgSpeedMps: n(session.avg_speed),
-    maxSpeedMps: n(session.max_speed),
+    avgSpeedMps:
+      n(session.avg_speed) ??
+      n(session.enhanced_avg_speed) ??
+      (n(session.total_distance) != null &&
+       n(session.total_timer_time) != null &&
+       n(session.total_timer_time)! > 0
+        ? n(session.total_distance)! / n(session.total_timer_time)!
+        : null),
+    maxSpeedMps: n(session.max_speed) ?? n(session.enhanced_max_speed),
 
     avgCadence: n(session.avg_cadence),
     maxCadence: n(session.max_cadence),
@@ -317,7 +324,10 @@ export async function parseFitBuffer(buffer: Buffer): Promise<ParsedWorkout> {
         ? n(session.avg_step_length)! / 1000  // mm → m
         : null,
 
-    trainingLoad: n(session.training_load_peak),
+    // training_load_peak is a scaled uint32 in the FIT SDK (scale=65536)
+    trainingLoad: n(session.training_load_peak) != null
+      ? n(session.training_load_peak)! / 65536
+      : null,
     aerobicTrainingEffect: n(session.total_training_effect),
     anaerobicTrainingEffect: n(session.total_anaerobic_training_effect),
     aerobicTeMessage: s(session.aerobic_training_effect_message),
