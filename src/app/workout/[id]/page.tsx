@@ -2,11 +2,13 @@ import { auth } from "@/auth"
 import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
-import { workoutLogs } from "@/lib/db/schema"
+import { workoutLogs, fitFiles } from "@/lib/db/schema"
 import { eq, and } from "drizzle-orm"
 import {
   fmtPace, fmtDistance, fmtDuration, fmtDateLong, fmtTemp, fmtNum,
 } from "@/lib/fmt"
+import { getAthleteContextForWorkout } from "@/lib/services/athleteContext.service"
+import { getPainObservationsForWorkout } from "@/lib/services/painObservation.service"
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 
@@ -39,6 +41,20 @@ const EFFORT_LABELS: Record<number, string> = {
   1: "Very easy", 2: "Easy", 3: "Moderate", 4: "Hard", 5: "Very hard",
 }
 
+const PAIN_LEVEL_COLORS: Record<number, string> = {
+  0: "text-green-600",
+  1: "text-green-600",
+  2: "text-green-600",
+  3: "text-yellow-600",
+  4: "text-yellow-600",
+  5: "text-orange-500",
+  6: "text-orange-500",
+  7: "text-red-500",
+  8: "text-red-500",
+  9: "text-red-700",
+  10: "text-red-700",
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default async function WorkoutDetailPage({
@@ -51,15 +67,25 @@ export default async function WorkoutDetailPage({
 
   const { id } = await params
 
-  const rows = await db
-    .select()
-    .from(workoutLogs)
-    .where(and(eq(workoutLogs.id, id), eq(workoutLogs.userId, session.user.id)))
-    .limit(1)
+  // Load workout log + fit file + athlete context + pain observations in parallel
+  const [rows, athleteContext, painObs] = await Promise.all([
+    db
+      .select({
+        log: workoutLogs,
+        fitFile: fitFiles,
+      })
+      .from(workoutLogs)
+      .leftJoin(fitFiles, eq(workoutLogs.fitFileId, fitFiles.id))
+      .where(and(eq(workoutLogs.id, id), eq(workoutLogs.userId, session.user.id)))
+      .limit(1),
+    getAthleteContextForWorkout(id),
+    getPainObservationsForWorkout(id),
+  ])
 
-  const log = rows[0]
-  if (!log) notFound()
+  const row = rows[0]
+  if (!row) notFound()
 
+  const { log, fitFile } = row
   const startDate = new Date(log.startTime)
   const sportLabel = log.sport
     ? log.sport.charAt(0).toUpperCase() + log.sport.slice(1)
@@ -114,6 +140,83 @@ export default async function WorkoutDetailPage({
           )}
         </section>
 
+        {/* Athlete context */}
+        {athleteContext && (
+          <Section title="Post-run context">
+            <div className="space-y-3">
+              {athleteContext.feel && (
+                <p className="text-sm text-gray-700 italic border-l-2 border-orange-200 pl-3">
+                  &ldquo;{athleteContext.feel}&rdquo;
+                </p>
+              )}
+              <div className="grid grid-cols-3 gap-4">
+                {athleteContext.outsideTempC != null && (
+                  <Stat label="Conditions" value={fmtTemp(athleteContext.outsideTempC)} sub={athleteContext.humidityPct != null ? `${athleteContext.humidityPct}% humidity` : undefined} />
+                )}
+                {athleteContext.sleepQuality != null && (
+                  <Stat label="Sleep" value={`${athleteContext.sleepQuality}/5`} />
+                )}
+                {athleteContext.rpe != null && (
+                  <Stat label="RPE" value={`${athleteContext.rpe}/5`} />
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {athleteContext.travel && (
+                  <span className="text-xs bg-blue-50 text-blue-600 rounded-full px-2.5 py-1 font-medium">Traveling</span>
+                )}
+                {athleteContext.massage && (
+                  <span className="text-xs bg-green-50 text-green-600 rounded-full px-2.5 py-1 font-medium">Massage</span>
+                )}
+                {athleteContext.illness && (
+                  <span className="text-xs bg-red-50 text-red-600 rounded-full px-2.5 py-1 font-medium">Unwell</span>
+                )}
+              </div>
+              {athleteContext.nutritionNotes && (
+                <p className="text-xs text-gray-500">
+                  <span className="font-medium">Nutrition:</span> {athleteContext.nutritionNotes}
+                </p>
+              )}
+              {athleteContext.freeText && (
+                <p className="text-xs text-gray-500">{athleteContext.freeText}</p>
+              )}
+            </div>
+          </Section>
+        )}
+
+        {/* Pain observations */}
+        {painObs.length > 0 && (
+          <Section title={`Pain observations (${painObs.length})`}>
+            <div className="space-y-3">
+              {painObs.map((obs) => (
+                <div key={obs.id} className="flex items-start gap-3 border-b border-gray-50 last:border-0 pb-3 last:pb-0">
+                  <div className={`text-lg font-bold ${PAIN_LEVEL_COLORS[obs.level0to10] ?? "text-gray-700"} shrink-0 w-8 text-center`}>
+                    {obs.level0to10}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800">
+                      {obs.side && obs.side !== "none" ? `${obs.side.charAt(0).toUpperCase() + obs.side.slice(1)} ` : ""}
+                      {obs.location}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {obs.character && (
+                        <span className="text-[11px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">{obs.character}</span>
+                      )}
+                      {obs.onset && (
+                        <span className="text-[11px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">
+                          {obs.onset.replace(/_/g, " ")}
+                        </span>
+                      )}
+                    </div>
+                    {obs.notes && (
+                      <p className="text-xs text-gray-400 mt-1">{obs.notes}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
         {/* Heart rate */}
         <Section title="Heart rate">
           <StatGrid>
@@ -141,7 +244,7 @@ export default async function WorkoutDetailPage({
           </StatGrid>
         </Section>
 
-        {/* Running dynamics — only show if we have data */}
+        {/* Running dynamics */}
         {(log.avgStrideLengthM != null ||
           log.avgVerticalOscillationMm != null ||
           log.avgStanceTimeMs != null) && (
@@ -156,9 +259,8 @@ export default async function WorkoutDetailPage({
           </Section>
         )}
 
-        {/* Training load */}
-        {(log.trainingLoad != null ||
-          log.aerobicTrainingEffect != null) && (
+        {/* Training impact */}
+        {(log.trainingLoad != null || log.aerobicTrainingEffect != null) && (
           <Section title="Training impact">
             <StatGrid>
               {log.trainingLoad != null && (
@@ -262,6 +364,55 @@ export default async function WorkoutDetailPage({
                 </tbody>
               </table>
             </div>
+          </Section>
+        )}
+
+        {/* Source data */}
+        {fitFile && (
+          <Section title="Source data">
+            <dl className="space-y-2 text-sm">
+              <div className="flex gap-2">
+                <dt className="text-gray-400 shrink-0 w-28">File</dt>
+                <dd className="text-gray-700 break-all">{fitFile.fileName ?? "—"}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="text-gray-400 shrink-0 w-28">Size</dt>
+                <dd className="text-gray-700">
+                  {fitFile.fileSizeBytes != null
+                    ? `${(fitFile.fileSizeBytes / 1024).toFixed(1)} KB`
+                    : "—"}
+                </dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="text-gray-400 shrink-0 w-28">SHA-256</dt>
+                <dd className="text-gray-500 font-mono text-xs break-all">{fitFile.sha256}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="text-gray-400 shrink-0 w-28">Parser</dt>
+                <dd className="text-gray-500 font-mono text-xs">{fitFile.parserVersion}</dd>
+              </div>
+              {fitFile.blobUrl && !fitFile.blobUrl.startsWith("local://") && (
+                <div className="flex gap-2">
+                  <dt className="text-gray-400 shrink-0 w-28">Source file</dt>
+                  <dd>
+                    <a
+                      href={fitFile.blobUrl}
+                      className="text-orange-500 hover:underline text-xs"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download original ↗
+                    </a>
+                  </dd>
+                </div>
+              )}
+              {fitFile.blobUrl?.startsWith("local://") && (
+                <div className="flex gap-2">
+                  <dt className="text-gray-400 shrink-0 w-28">Storage</dt>
+                  <dd className="text-gray-400 text-xs italic">Local dev (no blob)</dd>
+                </div>
+              )}
+            </dl>
           </Section>
         )}
 

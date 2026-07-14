@@ -3,7 +3,7 @@
 
 import { createHash } from "crypto"
 
-const PARSER_VERSION = "fit-file-parser@3.0.2/v1"
+export const PARSER_VERSION = "fit-file-parser@3.0.2/v1"
 
 // ─── Raw FIT data shapes ──────────────────────────────────────────────────────
 
