@@ -4,7 +4,7 @@ import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { deleteWorkout } from "@/app/workout/actions"
-import { fmtPace, fmtDistance, fmtDuration, fmtDate } from "@/lib/fmt"
+import { fmtPace, fmtDistance, fmtDuration, fmtDate, resolveSpeedMps } from "@/lib/fmt"
 
 interface WorkoutRow {
   id: string
@@ -61,6 +61,7 @@ export function RecentWorkoutsCard({ logs }: { logs: WorkoutRow[] }) {
           : "Activity"
         const isDeleting = deletingId === log.id
         const isConfirming = confirmId === log.id
+        const speedMps = resolveSpeedMps(log.avgSpeedMps, log.totalDistanceM, log.totalTimerSecs)
 
         return (
           <li key={log.id} className={isDeleting ? "opacity-40 pointer-events-none" : ""}>
@@ -106,7 +107,7 @@ export function RecentWorkoutsCard({ logs }: { logs: WorkoutRow[] }) {
                     <span className="text-gray-300">·</span>
                     <span>{fmtDuration(log.totalTimerSecs)}</span>
                     <span className="text-gray-300">·</span>
-                    <span>{fmtPace(log.avgSpeedMps)}</span>
+                    <span>{fmtPace(speedMps)}</span>
                   </div>
                   <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
                     {log.avgHr && <span>HR {log.avgHr} bpm</span>}

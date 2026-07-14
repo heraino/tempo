@@ -1,5 +1,20 @@
 // Shared display formatters used across workout list and detail views.
 
+// Returns avgSpeedMps when available, otherwise derives it from distance ÷ time.
+// Covers workouts uploaded before the parser fix (treadmill/indoor activities
+// where avg_speed was null but distance and time were recorded).
+export function resolveSpeedMps(
+  avgSpeedMps: number | null | undefined,
+  totalDistanceM: number | null | undefined,
+  totalTimerSecs: number | null | undefined,
+): number | null {
+  if (avgSpeedMps != null && avgSpeedMps > 0) return avgSpeedMps
+  if (totalDistanceM && totalTimerSecs && totalTimerSecs > 0) {
+    return totalDistanceM / totalTimerSecs
+  }
+  return null
+}
+
 export function fmtPace(avgSpeedMps: number | null | undefined): string {
   if (!avgSpeedMps || avgSpeedMps <= 0) return "—"
   const secsPerMile = 1609.344 / avgSpeedMps

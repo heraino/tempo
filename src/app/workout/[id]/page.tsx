@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { workoutLogs, fitFiles } from "@/lib/db/schema"
 import { eq, and } from "drizzle-orm"
 import {
-  fmtPace, fmtDistance, fmtDuration, fmtDateLong, fmtTemp, fmtNum,
+  fmtPace, fmtDistance, fmtDuration, fmtDateLong, fmtTemp, fmtNum, resolveSpeedMps,
 } from "@/lib/fmt"
 import { getAthleteContextForWorkout } from "@/lib/services/athleteContext.service"
 import { getPainObservationsForWorkout } from "@/lib/services/painObservation.service"
@@ -97,6 +97,9 @@ export default async function WorkoutDetailPage({
 
   const laps = (log.laps as Record<string, unknown>[] | null) ?? []
 
+  // Fallback for workouts uploaded before the parser fix (treadmill/indoor)
+  const avgSpeedMps = resolveSpeedMps(log.avgSpeedMps, log.totalDistanceM, log.totalTimerSecs)
+
   // Backward-compat: old rows stored training_load_peak as raw scaled uint32 (scale=65536)
   const displayTrainingLoad =
     log.trainingLoad != null
@@ -146,7 +149,7 @@ export default async function WorkoutDetailPage({
 
           <div className="grid grid-cols-3 gap-4 mt-6 pt-5 border-t border-gray-50">
             <Stat label="Time" value={fmtDuration(log.totalTimerSecs)} />
-            <Stat label="Avg pace" value={fmtPace(log.avgSpeedMps)} />
+            <Stat label="Avg pace" value={fmtPace(avgSpeedMps)} />
             <Stat label="Avg HR" value={log.avgHr ? `${log.avgHr} bpm` : "—"} sub={log.maxHr ? `max ${log.maxHr}` : undefined} />
           </div>
 
@@ -263,7 +266,7 @@ export default async function WorkoutDetailPage({
         {/* Pace & cadence */}
         <Section title="Pace & cadence">
           <StatGrid>
-            <Stat label="Avg pace" value={fmtPace(log.avgSpeedMps)} />
+            <Stat label="Avg pace" value={fmtPace(avgSpeedMps)} />
             <Stat label="Best pace" value={fmtPace(log.maxSpeedMps)} />
             <Stat label="Avg cadence" value={log.avgCadence ? `${log.avgCadence * 2} spm` : "—"} sub={log.maxCadence ? `max ${log.maxCadence * 2}` : undefined} />
           </StatGrid>
