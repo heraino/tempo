@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
-import { workoutLogs, fitFiles } from "@/lib/db/schema"
+import { workoutLogs, fitFiles, plannedSessions, sessionCompletions } from "@/lib/db/schema"
 import { eq, and } from "drizzle-orm"
 import {
   fmtPace, fmtDistance, fmtDuration, fmtDateLong, fmtTemp, fmtNum, resolveSpeedMps,
@@ -67,8 +67,8 @@ export default async function WorkoutDetailPage({
 
   const { id } = await params
 
-  // Load workout log + fit file + athlete context + pain observations in parallel
-  const [rows, athleteContext, painObs] = await Promise.all([
+  // Load workout log + fit file + athlete context + pain observations + planned session in parallel
+  const [rows, athleteContext, painObs, plannedSessionRows] = await Promise.all([
     db
       .select({
         log: workoutLogs,
@@ -80,6 +80,12 @@ export default async function WorkoutDetailPage({
       .limit(1),
     getAthleteContextForWorkout(id),
     getPainObservationsForWorkout(id),
+    db
+      .select({ session: plannedSessions })
+      .from(sessionCompletions)
+      .innerJoin(plannedSessions, eq(sessionCompletions.plannedSessionId, plannedSessions.id))
+      .where(eq(sessionCompletions.workoutLogId, id))
+      .limit(1),
   ])
 
   const row = rows[0]
@@ -96,6 +102,22 @@ export default async function WorkoutDetailPage({
     log.runOnlyDistanceM != null || log.walkDurationSecs != null
 
   const laps = (log.laps as Record<string, unknown>[] | null) ?? []
+
+  // Planned session linked via session_completion (may be null if uploaded without plan link)
+  const plannedSession = plannedSessionRows[0]?.session ?? null
+  const intervals = (plannedSession?.intervalsJson as Array<{
+    reps: number
+    label?: string
+    workDurationSecs?: number
+    workDistanceM?: number
+    recDurationSecs?: number
+    targetHrMin?: number
+    targetHrMax?: number
+  }> | null) ?? []
+  // Convert target pace (min/km) → m/s so we can reuse fmtPace
+  const targetSpeedMps = plannedSession?.targetPaceMinPerKm
+    ? 1000 / (plannedSession.targetPaceMinPerKm * 60)
+    : null
 
   // Fallback for workouts uploaded before the parser fix (treadmill/indoor)
   const avgSpeedMps = resolveSpeedMps(log.avgSpeedMps, log.totalDistanceM, log.totalTimerSecs)
@@ -167,6 +189,95 @@ export default async function WorkoutDetailPage({
             </p>
           )}
         </section>
+
+        {/* Planned workout */}
+        {plannedSession && (
+          <Section title="Planned workout">
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-gray-900">{plannedSession.label}</p>
+                <span className="text-[10px] font-semibold uppercase tracking-wide bg-orange-50 text-orange-500 rounded-full px-2 py-0.5 shrink-0">
+                  {plannedSession.sessionKind.replace(/_/g, " ")}
+                </span>
+              </div>
+
+              <p className="text-sm text-gray-600 border-l-2 border-orange-200 pl-3 leading-relaxed">
+                {plannedSession.prescription}
+              </p>
+
+              {/* Planned vs Actual */}
+              {(plannedSession.targetDurationSecs != null ||
+                plannedSession.targetDistanceM != null ||
+                plannedSession.targetHrMin != null ||
+                targetSpeedMps != null) && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Planned vs Actual</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {plannedSession.targetDurationSecs != null && (
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Duration</p>
+                        <p className="text-[11px] text-gray-400">Plan {fmtDuration(plannedSession.targetDurationSecs)}</p>
+                        <p className="text-sm font-bold text-gray-900 mt-0.5">{fmtDuration(log.totalTimerSecs)}</p>
+                      </div>
+                    )}
+                    {plannedSession.targetDistanceM != null && (
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Distance</p>
+                        <p className="text-[11px] text-gray-400">Plan {fmtDistance(plannedSession.targetDistanceM)}</p>
+                        <p className="text-sm font-bold text-gray-900 mt-0.5">{fmtDistance(log.totalDistanceM)}</p>
+                      </div>
+                    )}
+                    {(plannedSession.targetHrMin != null || plannedSession.targetHrMax != null) && (
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Heart rate</p>
+                        <p className="text-[11px] text-gray-400">
+                          Zone {plannedSession.targetHrMin ?? "—"}–{plannedSession.targetHrMax ?? "—"} bpm
+                        </p>
+                        <p className="text-sm font-bold text-gray-900 mt-0.5">
+                          {log.avgHr ? `${log.avgHr} bpm avg` : "—"}
+                        </p>
+                      </div>
+                    )}
+                    {targetSpeedMps != null && (
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Pace</p>
+                        <p className="text-[11px] text-gray-400">Plan {fmtPace(targetSpeedMps)}</p>
+                        <p className="text-sm font-bold text-gray-900 mt-0.5">{fmtPace(avgSpeedMps)}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Intervals */}
+              {intervals.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Intervals</p>
+                  <div className="space-y-1.5">
+                    {intervals.map((block, i) => (
+                      <div key={i} className="flex items-center justify-between gap-3 bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
+                        <span className="font-semibold text-gray-800">
+                          {block.reps}×{block.label ? ` ${block.label}` : ""}
+                        </span>
+                        <span className="text-gray-400 shrink-0">
+                          {block.workDurationSecs
+                            ? fmtDuration(block.workDurationSecs)
+                            : block.workDistanceM
+                            ? fmtDistance(block.workDistanceM)
+                            : ""}
+                          {(block.targetHrMin != null || block.targetHrMax != null)
+                            ? ` · ${block.targetHrMin ?? "—"}–${block.targetHrMax ?? "—"} bpm`
+                            : ""}
+                          {block.recDurationSecs ? ` rec ${fmtDuration(block.recDurationSecs)}` : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
 
         {/* Athlete context */}
         {athleteContext && (
