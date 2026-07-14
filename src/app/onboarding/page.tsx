@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { savePlan, signOutAction } from "./actions"
 
@@ -10,6 +10,14 @@ export default function OnboardingPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const tzRef = useRef<HTMLInputElement>(null)
+
+  // Capture the browser's IANA timezone so the server can resolve local "today".
+  useEffect(() => {
+    if (tzRef.current) {
+      tzRef.current.value = Intl.DateTimeFormat().resolvedOptions().timeZone
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -45,6 +53,9 @@ export default function OnboardingPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-6">
+          {/* Hidden: browser timezone captured via useEffect */}
+          <input ref={tzRef} type="hidden" name="timezone" defaultValue="UTC" />
+
           {/* Plan title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from "vitest"
 
-// The pure scheduling functions don't use the DB, but scheduler.ts imports
-// @/lib/db at the module level. Mock the module so tests run without a real
-// database connection.
+// scheduler.ts and seed.ts both import @/lib/db at the module level.
+// Mock the module so pure-function tests run without a real DB connection.
 vi.mock("@/lib/db", () => ({ db: {} }))
 
 import { resolveCycleWeek, resolveDayPlans, getWeekdayName, addDays } from "./scheduler"
+import { SEED_PLAN_JSON } from "./seed"
 import type { PlanJson, CycleWeek } from "./types"
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
@@ -383,5 +383,115 @@ describe("getWeekdayName", () => {
   it("correctly identifies Jan 1 after year boundary", () => {
     // 2027-01-01 is a Friday
     expect(getWeekdayName("2027-01-01")).toBe("Friday")
+  })
+})
+
+// ─── SEED_PLAN_JSON — session model integrity ─────────────────────────────────
+
+describe("SEED_PLAN_JSON — Week A Saturday: easy + strides is ONE session", () => {
+  const weekA = SEED_PLAN_JSON.cycleWeeks.find((w) => w.id === "A")!
+  const saturday = weekA.days.find((d) => d.weekday === "Saturday")!
+
+  it("Saturday has exactly one planned session", () => {
+    // Strides are workout components of the easy run — one Garmin activity,
+    // one planned session. If this were two sessions, a FIT upload for the
+    // easy+strides run would satisfy the easy session and leave the strides
+    // session orphaned with no FIT to link to.
+    expect(saturday.sessions).toHaveLength(1)
+  })
+
+  it("the single session is a run session (sessionKind: easy)", () => {
+    const s = saturday.sessions[0]
+    expect(s.sessionKind).toBe("easy")
+    expect(s.isRunSession).toBe(true)
+  })
+
+  it("strides are encoded as intervals within the session, not as a separate session", () => {
+    const s = saturday.sessions[0]
+    expect(s.intervals).toBeDefined()
+    expect(s.intervals!.length).toBeGreaterThan(0)
+
+    // Confirm there is no top-level strides session (the old incorrect model)
+    const stridesSessions = saturday.sessions.filter((x) => x.sessionKind === "strides")
+    expect(stridesSessions).toHaveLength(0)
+  })
+
+  it("one FIT completion satisfies the session — no orphaned strides session can remain", () => {
+    // With one planned session, linking one FIT file completes the day.
+    // There is no second session left in status "planned" after the upload.
+    const runSessions = saturday.sessions.filter((s) => s.isRunSession)
+    expect(runSessions).toHaveLength(1)
+    // The single run session carries the strides prescription
+    expect(runSessions[0].prescription).toMatch(/stride/i)
+  })
+})
+
+describe("SEED_PLAN_JSON — Week D corrections", () => {
+  const weekD = SEED_PLAN_JSON.cycleWeeks.find((w) => w.id === "D")!
+
+  it("Week D is flagged as a cutback week", () => {
+    expect(weekD.isCutback).toBe(true)
+  })
+
+  it("Monday has a single easy run — no elastic work described in the prescription", () => {
+    const monday = weekD.days.find((d) => d.weekday === "Monday")!
+    expect(monday.sessions).toHaveLength(1)
+    expect(monday.sessions[0].sessionKind).toBe("easy")
+    expect(monday.sessions[0].prescription).not.toMatch(/elastic/i)
+  })
+
+  it("Tuesday has pull strength only — no recovery run", () => {
+    const tuesday = weekD.days.find((d) => d.weekday === "Tuesday")!
+    expect(tuesday.sessions).toHaveLength(1)
+    expect(tuesday.sessions[0].sessionKind).toBe("strength")
+    const hasRecoveryRun = tuesday.sessions.some((s) => s.sessionKind === "recovery")
+    expect(hasRecoveryRun).toBe(false)
+  })
+
+  it("Wednesday has one easy-run-with-strides session (not empty, not two sessions)", () => {
+    const wednesday = weekD.days.find((d) => d.weekday === "Wednesday")!
+    expect(wednesday.sessions).toHaveLength(1)
+    expect(wednesday.sessions[0].sessionKind).toBe("easy")
+    expect(wednesday.sessions[0].isRunSession).toBe(true)
+    expect(wednesday.sessions[0].intervals).toBeDefined()
+  })
+
+  it("Friday is a rest day", () => {
+    const friday = weekD.days.find((d) => d.weekday === "Friday")!
+    expect(friday.sessions).toHaveLength(0)
+  })
+})
+
+describe("SEED_PLAN_JSON — progression block model", () => {
+  it("has four progression blocks numbered 1–4", () => {
+    expect(SEED_PLAN_JSON.progressionBlocks).toHaveLength(4)
+    const nums = SEED_PLAN_JSON.progressionBlocks!.map((b) => b.blockNumber)
+    expect(nums).toEqual([1, 2, 3, 4])
+  })
+
+  it("each block's build range is higher than its cutback range", () => {
+    for (const b of SEED_PLAN_JSON.progressionBlocks!) {
+      expect(b.buildMinMi).toBeGreaterThan(b.cutbackMinMi)
+      expect(b.buildMaxMi).toBeGreaterThan(b.cutbackMaxMi)
+    }
+  })
+
+  it("build mileage increases across blocks", () => {
+    const blocks = SEED_PLAN_JSON.progressionBlocks!
+    for (let i = 1; i < blocks.length; i++) {
+      expect(blocks[i].buildMinMi).toBeGreaterThan(blocks[i - 1].buildMinMi)
+    }
+  })
+
+  it("Block 1 build range matches the governing plan (20–22 mi)", () => {
+    const b1 = SEED_PLAN_JSON.progressionBlocks!.find((b) => b.blockNumber === 1)!
+    expect(b1.buildMinMi).toBe(20)
+    expect(b1.buildMaxMi).toBe(22)
+    expect(b1.cutbackMinMi).toBe(15)
+    expect(b1.cutbackMaxMi).toBe(17)
+  })
+
+  it("does not use the deprecated mileageBands field", () => {
+    expect(SEED_PLAN_JSON.mileageBands).toBeUndefined()
   })
 })

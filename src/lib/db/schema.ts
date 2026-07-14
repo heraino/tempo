@@ -194,6 +194,9 @@ export const trainingPlans = pgTable("training_plan", {
   content: text("content").notNull(),
   startDate: date("start_date").notNull(),
   startWeek: text("start_week").notNull(),
+  // IANA timezone name (e.g. "America/Los_Angeles"). Used to resolve the
+  // athlete's local calendar date so "today" is correct across timezones.
+  timezone: text("timezone").notNull().default("UTC"),
   createdAt: timestamp("created_at").defaultNow(),
 })
 

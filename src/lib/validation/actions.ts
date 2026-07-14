@@ -77,4 +77,7 @@ export const savePlanSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   // Free string; Phase 3 seed reads it as the starting cycle week ID
   startWeek: z.string().min(1).max(50),
+  // IANA timezone (e.g. "America/Los_Angeles"), captured from the browser.
+  // Used to resolve the athlete's local calendar date. Defaults to UTC.
+  timezone: z.string().max(100).optional().default("UTC"),
 })

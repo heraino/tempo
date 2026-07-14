@@ -45,18 +45,29 @@ export const cycleWeekSchema = z.object({
   id: z.string().min(1).max(50),
   label: z.string().min(1).max(200),
   days: z.array(dayTemplateSchema),
+  isCutback: z.boolean().optional(),
 })
 
+/** @deprecated Use progressionBlockSchema. */
 export const mileageBandSchema = z.object({
   cycleWeekId: z.string().min(1).max(50),
   minMi: z.number().min(0),
   maxMi: z.number().min(0),
 })
 
+export const progressionBlockSchema = z.object({
+  blockNumber: z.number().int().min(1),
+  buildMinMi: z.number().min(0),
+  buildMaxMi: z.number().min(0),
+  cutbackMinMi: z.number().min(0),
+  cutbackMaxMi: z.number().min(0),
+})
+
 export const planJsonSchema = z.object({
   version: z.literal(1),
   cycleWeeks: z.array(cycleWeekSchema).min(1, "Plan must have at least one cycle week"),
   mileageBands: z.array(mileageBandSchema).optional(),
+  progressionBlocks: z.array(progressionBlockSchema).optional(),
 })
 
 /** Throws a ZodError if invalid; returns a typed PlanJson if valid. */

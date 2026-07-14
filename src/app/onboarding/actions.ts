@@ -22,9 +22,10 @@ export async function savePlan(formData: FormData) {
     title: formData.get("title") || file.name,
     startDate: formData.get("startDate"),
     startWeek: formData.get("startWeek"),
+    timezone: formData.get("timezone") || "UTC",
   })
   if (!parsed.success) return { error: parsed.error.errors[0].message }
-  const { title, startDate, startWeek } = parsed.data
+  const { title, startDate, startWeek, timezone } = parsed.data
 
   const content = await file.text()
 
@@ -36,6 +37,7 @@ export async function savePlan(formData: FormData) {
     content,
     startDate,
     startWeek,
+    timezone,
   })
 
   // Seed plan version + generate 90 days of schedule on first save.

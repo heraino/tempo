@@ -4,7 +4,8 @@ import Link from "next/link"
 import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
 import { eq, desc } from "drizzle-orm"
-import { getScheduleRange } from "@/lib/services/plan.service"
+import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.service"
+import { resolveLocalDate } from "@/lib/plan/localDate"
 import { fmtPace, fmtDistance, fmtDuration, fmtDate } from "@/lib/fmt"
 
 export default async function DashboardPage() {
@@ -13,7 +14,8 @@ export default async function DashboardPage() {
 
   const userId = session.user.id
 
-  const todayStr = new Date().toISOString().split("T")[0]
+  const tz = await getAthleteTimezone(userId)
+  const todayStr = resolveLocalDate(tz)
 
   const [scheduleResult, recentLogs] = await Promise.all([
     getScheduleRange(userId, todayStr, 8),

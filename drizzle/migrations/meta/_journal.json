@@ -15,6 +15,13 @@
       "when": 1784008723484,
       "tag": "0001_add_fit_file_parse_status",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784181600000,
+      "tag": "0002_add_training_plan_timezone",
+      "breakpoints": true
     }
   ]
 }

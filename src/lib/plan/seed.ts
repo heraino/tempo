@@ -27,8 +27,8 @@ export const SEED_PLAN_JSON: PlanJson = validatePlanJson({
       id: "A", label: "Threshold",
       days: [
         { weekday: "Monday", sessions: [
-          { sessionKind: "easy",    label: "Easy aerobic", prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
-          { sessionKind: "elastic", label: "Elastic work", prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
+          { sessionKind: "easy",    label: "Easy aerobic run", prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "elastic", label: "Elastic work",     prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
         ]},
         { weekday: "Tuesday", sessions: [
           { sessionKind: "recovery", label: "Recovery run",  prescription: "Easy recovery run", isRunSession: true,  isStrengthSession: false },
@@ -45,8 +45,12 @@ export const SEED_PLAN_JSON: PlanJson = validatePlanJson({
         ]},
         { weekday: "Friday",   sessions: [] },
         { weekday: "Saturday", sessions: [
-          { sessionKind: "easy",    label: "Easy run", prescription: "40–45 min easy run", isRunSession: true, isStrengthSession: false },
-          { sessionKind: "strides", label: "Strides",  prescription: "4–6 × 20 sec strides", isRunSession: true, isStrengthSession: false },
+          // Strides are performed at the end of the easy run — one Garmin activity,
+          // one planned session. Strides are encoded as intervals within this session.
+          { sessionKind: "easy", label: "Easy run with strides",
+            prescription: "40–45 min easy run + 4–6 × 20 sec strides",
+            isRunSession: true, isStrengthSession: false,
+            intervals: [{ reps: 5, workDurationSecs: 20, label: "20 sec stride" }] },
         ]},
         { weekday: "Sunday", sessions: [
           { sessionKind: "long", label: "Long run", prescription: "Long run", isRunSession: true, isStrengthSession: false },
@@ -57,8 +61,8 @@ export const SEED_PLAN_JSON: PlanJson = validatePlanJson({
       id: "B", label: "Tempo",
       days: [
         { weekday: "Monday", sessions: [
-          { sessionKind: "easy",    label: "Easy aerobic", prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
-          { sessionKind: "elastic", label: "Elastic work", prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
+          { sessionKind: "easy",    label: "Easy aerobic run", prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "elastic", label: "Elastic work",     prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
         ]},
         { weekday: "Tuesday", sessions: [
           { sessionKind: "recovery", label: "Recovery run",  prescription: "Easy recovery run", isRunSession: true,  isStrengthSession: false },
@@ -86,8 +90,8 @@ export const SEED_PLAN_JSON: PlanJson = validatePlanJson({
       id: "C", label: "Progression",
       days: [
         { weekday: "Monday", sessions: [
-          { sessionKind: "easy",    label: "Easy aerobic", prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
-          { sessionKind: "elastic", label: "Elastic work", prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
+          { sessionKind: "easy",    label: "Easy aerobic run", prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "elastic", label: "Elastic work",     prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
         ]},
         { weekday: "Tuesday", sessions: [
           { sessionKind: "recovery", label: "Recovery run",  prescription: "Easy recovery run", isRunSession: true,  isStrengthSession: false },
@@ -102,7 +106,7 @@ export const SEED_PLAN_JSON: PlanJson = validatePlanJson({
         ]},
         { weekday: "Friday",   sessions: [] },
         { weekday: "Saturday", sessions: [
-          { sessionKind: "easy", label: "Easy aerobic", prescription: "40–45 min easy aerobic", isRunSession: true, isStrengthSession: false },
+          { sessionKind: "easy", label: "Easy aerobic run", prescription: "40–45 min easy aerobic run", isRunSession: true, isStrengthSession: false },
         ]},
         { weekday: "Sunday", sessions: [
           { sessionKind: "long", label: "Long run", prescription: "Long run", isRunSession: true, isStrengthSession: false },
@@ -111,25 +115,32 @@ export const SEED_PLAN_JSON: PlanJson = validatePlanJson({
     },
     {
       id: "D", label: "Cutback",
+      isCutback: true,
       days: [
         { weekday: "Monday", sessions: [
-          { sessionKind: "easy", label: "Easy aerobic",
-            prescription: "Easy aerobic run + reduced elastic work (~80%)",
+          { sessionKind: "easy", label: "Easy run",
+            prescription: "35–40 min easy run",
             isRunSession: true, isStrengthSession: false },
         ]},
         { weekday: "Tuesday", sessions: [
           { sessionKind: "strength", label: "Pull strength",
-            prescription: "Pull strength (~80%)", isRunSession: false, isStrengthSession: true },
+            prescription: "Pull strength (~80% volume)", isRunSession: false, isStrengthSession: true },
         ]},
-        { weekday: "Wednesday", sessions: [] },
+        { weekday: "Wednesday", sessions: [
+          // One running session; strides are workout components of the same Garmin activity.
+          { sessionKind: "easy", label: "Easy run with strides",
+            prescription: "35–40 min easy run + 4 × 20 sec strides",
+            isRunSession: true, isStrengthSession: false,
+            intervals: [{ reps: 4, workDurationSecs: 20, label: "20 sec stride" }] },
+        ]},
         { weekday: "Thursday", sessions: [
           { sessionKind: "strength", label: "Push strength",
-            prescription: "Push strength (~80%)", isRunSession: false, isStrengthSession: true },
+            prescription: "Push strength (~80% volume)", isRunSession: false, isStrengthSession: true },
         ]},
         { weekday: "Friday",   sessions: [] },
         { weekday: "Saturday", sessions: [
-          { sessionKind: "easy", label: "Easy aerobic",
-            prescription: "Easy aerobic run", isRunSession: true, isStrengthSession: false },
+          { sessionKind: "easy", label: "Easy run",
+            prescription: "35–40 min easy run", isRunSession: true, isStrengthSession: false },
         ]},
         { weekday: "Sunday", sessions: [
           { sessionKind: "long", label: "Cutback long run",
@@ -138,11 +149,11 @@ export const SEED_PLAN_JSON: PlanJson = validatePlanJson({
       ],
     },
   ],
-  mileageBands: [
-    { cycleWeekId: "A", minMi: 20, maxMi: 22 },
-    { cycleWeekId: "B", minMi: 22, maxMi: 24 },
-    { cycleWeekId: "C", minMi: 24, maxMi: 26 },
-    { cycleWeekId: "D", minMi: 15, maxMi: 17 },
+  progressionBlocks: [
+    { blockNumber: 1, buildMinMi: 20, buildMaxMi: 22, cutbackMinMi: 15, cutbackMaxMi: 17 },
+    { blockNumber: 2, buildMinMi: 22, buildMaxMi: 24, cutbackMinMi: 17, cutbackMaxMi: 19 },
+    { blockNumber: 3, buildMinMi: 24, buildMaxMi: 26, cutbackMinMi: 19, cutbackMaxMi: 21 },
+    { blockNumber: 4, buildMinMi: 26, buildMaxMi: 28, cutbackMinMi: 20, cutbackMaxMi: 22 },
   ],
 })
 

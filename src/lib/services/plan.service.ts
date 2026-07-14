@@ -26,6 +26,20 @@ export async function getActivePlanVersion(userId: string) {
   return rows[0] ?? null
 }
 
+/**
+ * Return the athlete's stored IANA timezone (e.g. "America/Los_Angeles").
+ * Falls back to "UTC" if no plan is on record yet.
+ */
+export async function getAthleteTimezone(userId: string): Promise<string> {
+  const rows = await db
+    .select({ timezone: trainingPlans.timezone })
+    .from(trainingPlans)
+    .where(eq(trainingPlans.userId, userId))
+    .orderBy(desc(trainingPlans.createdAt))
+    .limit(1)
+  return rows[0]?.timezone ?? "UTC"
+}
+
 export async function savePlanMarkdown(
   userId: string,
   values: typeof trainingPlans.$inferInsert
