@@ -89,7 +89,10 @@ export async function getOrCreatePlanVersion(userId: string) {
   const plan = await getActivePlan(userId)
   if (!plan) return null
 
-  return seedPlanVersion(userId, { startDate: plan.startDate, startWeek: plan.startWeek })
+  // Seed only 16 days in the lazy path to stay within Vercel's function timeout.
+  // generateSchedule is idempotent, so more days are generated on demand as the
+  // user navigates forward. Onboarding seeds the full 90 days via savePlan.
+  return seedPlanVersion(userId, { startDate: plan.startDate, startWeek: plan.startWeek }, 16)
 }
 
 /**
