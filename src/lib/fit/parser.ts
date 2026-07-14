@@ -1,7 +1,51 @@
 // FIT file parser — runs server-side only.
 // fit-file-parser is CommonJS so we dynamic-import it.
 
+import { createHash } from "crypto"
+
+export const PARSER_VERSION = "fit-file-parser@3.0.2/v1"
+
+// ─── Raw FIT data shapes ──────────────────────────────────────────────────────
+
+interface FitRecord {
+  timestamp: string
+  heart_rate?: number
+  speed?: number
+  distance?: number
+  [key: string]: unknown
+}
+
+interface FitEvent {
+  event: string
+  event_type: string
+  timestamp: string
+}
+
+interface FitLap {
+  records?: FitRecord[]
+  [key: string]: unknown
+}
+
+interface FitSession {
+  laps?: FitLap[]
+  start_time: string
+  [key: string]: unknown
+}
+
+interface FitData {
+  activity?: {
+    sessions?: FitSession[]
+    events?: FitEvent[]
+    device_infos?: unknown[]
+  }
+}
+
+// ─── Output interface ─────────────────────────────────────────────────────────
+
 export interface ParsedWorkout {
+  sha256: string
+  parserVersion: string
+
   // Timing
   startTime: Date
   totalElapsedSecs: number | null
@@ -84,13 +128,25 @@ export interface ParsedWorkout {
   deviceInfo: unknown[]
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function avg(arr: number[]): number | null {
   if (arr.length === 0) return null
   return Math.round(arr.reduce((s, v) => s + v, 0) / arr.length)
 }
 
-function deriveHrMetrics(records: any[]) {
-  const hrs = records.map((r: any) => r.heart_rate).filter((v: any) => typeof v === "number")
+// Accept unknown; return null for non-numeric values
+const n = (v: unknown): number | null =>
+  v != null && !Number.isNaN(Number(v)) ? Number(v) : null
+
+const s = (v: unknown): string | null => (v != null ? String(v) : null)
+
+// ─── Derived metric calculators ───────────────────────────────────────────────
+
+function deriveHrMetrics(records: FitRecord[]) {
+  const hrs = records
+    .map((r) => r.heart_rate)
+    .filter((v): v is number => typeof v === "number")
   if (hrs.length < 2) return { firstHalfAvgHr: null, secondHalfAvgHr: null, hrDriftBpm: null }
 
   const mid = Math.floor(hrs.length / 2)
@@ -101,15 +157,12 @@ function deriveHrMetrics(records: any[]) {
   return { firstHalfAvgHr, secondHalfAvgHr, hrDriftBpm }
 }
 
-function deriveRunWalk(records: any[], events: any[]) {
-  // Garmin marks auto-pause (walk breaks) with timer events.
-  // event_type "stop" = pause started (walk), "start" = running resumed.
+function deriveRunWalk(records: FitRecord[], events: FitEvent[]) {
   const timerEvents = (events ?? []).filter(
-    (e: any) => e.event === "timer" && (e.event_type === "start" || e.event_type === "stop")
+    (e) => e.event === "timer" && (e.event_type === "start" || e.event_type === "stop")
   )
 
   if (timerEvents.length === 0) {
-    // No detected walk breaks — treat full session as run-only
     return {
       runOnlyDistanceM: null,
       runOnlyDurationSecs: null,
@@ -119,14 +172,12 @@ function deriveRunWalk(records: any[], events: any[]) {
     }
   }
 
-  // Build run/walk intervals from events
   let runSecs = 0
   let walkSecs = 0
-  const runRecords: any[] = []
+  const runRecords: FitRecord[] = []
   let isRunning = true
   let lastTimestamp: Date | null = null
 
-  // Create a sorted list of events with their timestamps
   const sortedEvents = [...timerEvents].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   )
@@ -142,8 +193,6 @@ function deriveRunWalk(records: any[], events: any[]) {
     isRunning = evt.event_type === "start"
   }
 
-  // Classify each record as run or walk based on whether its timestamp
-  // falls during a run or walk interval
   const runIntervals: Array<{ start: Date; end: Date }> = []
   let intervalStart: Date | null = null
   let inRun = false
@@ -166,14 +215,15 @@ function deriveRunWalk(records: any[], events: any[]) {
     if (duringRun) runRecords.push(rec)
   }
 
-  const runOnlyDistanceM = runRecords.length > 0
-    ? runRecords[runRecords.length - 1].distance - (runRecords[0].distance ?? 0)
-    : null
+  const runOnlyDistanceM =
+    runRecords.length > 0
+      ? (runRecords[runRecords.length - 1].distance ?? 0) - (runRecords[0].distance ?? 0)
+      : null
   const runOnlyAvgSpeedMps = avg(
-    runRecords.map((r: any) => r.speed).filter((v: any) => typeof v === "number")
+    runRecords.map((r) => r.speed).filter((v): v is number => typeof v === "number")
   )
   const runOnlyAvgHr = avg(
-    runRecords.map((r: any) => r.heart_rate).filter((v: any) => typeof v === "number")
+    runRecords.map((r) => r.heart_rate).filter((v): v is number => typeof v === "number")
   )
 
   return {
@@ -185,11 +235,14 @@ function deriveRunWalk(records: any[], events: any[]) {
   }
 }
 
-export async function parseFitBuffer(buffer: Buffer, fileName: string): Promise<ParsedWorkout> {
-  // Dynamic import handles the CommonJS module
-  const FitParser = (await import("fit-file-parser" as any)).default
+// ─── Main export ──────────────────────────────────────────────────────────────
 
-  const parsed = await new Promise<any>((resolve, reject) => {
+export async function parseFitBuffer(buffer: Buffer): Promise<ParsedWorkout> {
+  const sha256 = createHash("sha256").update(buffer).digest("hex")
+
+  const FitParser = (await import("fit-file-parser")).default
+
+  const parsed = await new Promise<FitData>((resolve, reject) => {
     const parser = new FitParser({
       force: true,
       speedUnit: "m/s",
@@ -198,34 +251,34 @@ export async function parseFitBuffer(buffer: Buffer, fileName: string): Promise<
       elapsedRecordField: true,
       mode: "cascade",
     })
-    parser.parse(buffer, (err: any, data: any) => {
+    parser.parse(buffer, (err, data) => {
       if (err) reject(new Error(err))
-      else resolve(data)
+      else resolve(data as FitData)
     })
   })
 
   const session = parsed?.activity?.sessions?.[0]
   if (!session) throw new Error("No session found in FIT file")
 
-  // Flatten records from all laps for derived metric calculation
-  const allRecords: any[] = (session.laps ?? []).flatMap((lap: any) => lap.records ?? [])
-  const allEvents: any[] = parsed?.activity?.events ?? []
-  const deviceInfo: any[] = parsed?.activity?.device_infos ?? []
+  const allRecords: FitRecord[] = (session.laps ?? []).flatMap(
+    (lap) => (lap.records ?? []) as FitRecord[]
+  )
+  const allEvents: FitEvent[] = (parsed?.activity?.events ?? []) as FitEvent[]
+  const deviceInfo: unknown[] = parsed?.activity?.device_infos ?? []
 
   const hrMetrics = deriveHrMetrics(allRecords)
   const runWalk = deriveRunWalk(allRecords, allEvents)
 
-  // Strip records out of laps for the laps JSON payload, then store records
-  // separately so each JSON column stays focused.
-  const lapsWithoutRecords = (session.laps ?? []).map((lap: any) => {
-    const { records: _, ...rest } = lap
+  const lapsWithoutRecords = (session.laps ?? []).map((lap) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { records: _records, ...rest } = lap
     return rest
   })
 
-  const n = (v: any): number | null => (v != null && !Number.isNaN(v) ? Number(v) : null)
-  const s = (v: any): string | null => (v != null ? String(v) : null)
-
   return {
+    sha256,
+    parserVersion: PARSER_VERSION,
+
     startTime: new Date(session.start_time),
     totalElapsedSecs: n(session.total_elapsed_time),
     totalTimerSecs: n(session.total_timer_time),
@@ -259,9 +312,10 @@ export async function parseFitBuffer(buffer: Buffer, fileName: string): Promise<
     avgStanceTimeMs: n(session.avg_stance_time),
     avgStanceTimePct: n(session.avg_stance_time_percent),
     avgVerticalRatio: n(session.avg_vertical_ratio),
-    avgStrideLengthM: n(session.avg_step_length) != null
-      ? (n(session.avg_step_length)! / 1000)  // mm → m
-      : null,
+    avgStrideLengthM:
+      n(session.avg_step_length) != null
+        ? n(session.avg_step_length)! / 1000  // mm → m
+        : null,
 
     trainingLoad: n(session.training_load_peak),
     aerobicTrainingEffect: n(session.total_training_effect),
@@ -271,7 +325,8 @@ export async function parseFitBuffer(buffer: Buffer, fileName: string): Promise<
 
     avgRespirationRate: n(session.avg_respiration_rate),
     maxRespirationRate: n(session.max_respiration_rate),
-    vo2Max: n(session.enhanced_avg_respiration_rate) ?? n(session.vo2_max_data),
+    // VO2max: use vo2_max_data only — enhanced_avg_respiration_rate is NOT VO2max
+    vo2Max: n(session.vo2_max_data),
 
     necLat: n(session.nec_lat),
     necLong: n(session.nec_long),

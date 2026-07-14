@@ -2,9 +2,10 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
-import { trainingPlans, workoutLogs } from "@/lib/db/schema"
+import { workoutLogs } from "@/lib/db/schema"
 import { eq, desc } from "drizzle-orm"
-import { getTodayInfo, getDateInfo, extractWorkout, type RotationWeek } from "@/lib/rotation"
+import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.service"
+import { resolveLocalDate } from "@/lib/plan/localDate"
 import { fmtPace, fmtDistance, fmtDuration, fmtDate } from "@/lib/fmt"
 
 export default async function DashboardPage() {
@@ -13,9 +14,11 @@ export default async function DashboardPage() {
 
   const userId = session.user.id
 
-  // Load training plan and recent workouts in parallel
-  const [planRows, recentLogs] = await Promise.all([
-    db.select().from(trainingPlans).where(eq(trainingPlans.userId, userId)).limit(1),
+  const tz = await getAthleteTimezone(userId)
+  const todayStr = resolveLocalDate(tz)
+
+  const [scheduleResult, recentLogs] = await Promise.all([
+    getScheduleRange(userId, todayStr, 8),
     db
       .select()
       .from(workoutLogs)
@@ -24,24 +27,19 @@ export default async function DashboardPage() {
       .limit(10),
   ])
 
-  const plan = planRows[0]
+  if (!scheduleResult) redirect("/onboarding")
 
-  // No plan yet → prompt onboarding
-  if (!plan) redirect("/onboarding")
+  const { cycleWeekLabels, scheduledDays } = scheduleResult
+  const todayDay = scheduledDays[0]
+  const upcomingDays = scheduledDays.slice(1)
 
-  const anchorDate = new Date(plan.startDate + "T00:00:00")
-  const { week, dayName, today } = getTodayInfo(anchorDate, plan.startWeek as RotationWeek)
-  const todaysWorkout = extractWorkout(plan.content, week, dayName)
+  const todayLabel = todayDay
+    ? `Week ${todayDay.cycleWeekId} · ${todayDay.weekday}`
+    : ""
 
-  // Build the next 7 days
-  const upcomingDays = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(today)
-    date.setDate(today.getDate() + i + 1)
-    const { week: w, dayName: dn } = getDateInfo(date, anchorDate, plan.startWeek as RotationWeek)
-    const workout = extractWorkout(plan.content, w, dn)
-    const firstLine = workout.split("\n").find(l => l.trim() && !l.startsWith("#"))?.trim() ?? ""
-    return { date, week: w, dayName: dn, firstLine }
-  })
+  const todaySessionSummary = todayDay && !todayDay.isRestDay && todayDay.sessions.length > 0
+    ? todayDay.sessions.map((s) => s.label).join(" + ")
+    : null
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
@@ -51,7 +49,12 @@ export default async function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tempo</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {today.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+            {new Date(todayStr + "T00:00:00.000Z").toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              timeZone: "UTC",
+            })}
           </p>
         </div>
 
@@ -60,7 +63,7 @@ export default async function DashboardPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">
-                Week {week} · {dayName}
+                {todayLabel}
               </p>
               <h2 className="text-lg font-bold text-gray-900 mt-1">Today&apos;s workout</h2>
             </div>
@@ -72,20 +75,21 @@ export default async function DashboardPage() {
             </Link>
           </div>
 
-          {todaysWorkout ? (
-            <Link href="/plan/today" className="block mt-4 group">
-              <div className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed line-clamp-4">
-                {todaysWorkout}
-              </div>
+          {todayDay ? (
+            <Link href={`/plan/${todayStr}`} className="block mt-4 group">
+              {todayDay.isRestDay ? (
+                <p className="text-sm text-gray-400">Rest day — no sessions scheduled.</p>
+              ) : (
+                <div className="text-gray-700 text-sm leading-relaxed">
+                  {todaySessionSummary ?? "View sessions"}
+                </div>
+              )}
               <p className="mt-3 text-sm font-medium text-orange-500 group-hover:underline">
                 View full workout →
               </p>
             </Link>
           ) : (
-            <p className="mt-4 text-sm text-gray-400">
-              Could not find today&apos;s section in your plan. Check that your plan uses the
-              headings <code>### {dayName}</code> inside <code># Week {week}</code>.
-            </p>
+            <p className="mt-4 text-sm text-gray-400">No schedule found for today.</p>
           )}
         </section>
 
@@ -93,57 +97,51 @@ export default async function DashboardPage() {
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Next 7 days</h2>
           <ul className="space-y-0">
-            {upcomingDays.map(({ date, week: w, dayName: dn, firstLine }) => (
-              <li key={date.toISOString()}>
-                <Link
-                  href={`/plan/${w}/${dn}`}
-                  className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded-xl transition-colors"
-                >
-                  {/* Date column */}
-                  <div className="w-10 shrink-0 text-center">
-                    <p className="text-[11px] font-semibold uppercase text-gray-400 leading-none">
-                      {date.toLocaleDateString("en-US", { weekday: "short" })}
-                    </p>
-                    <p className="text-lg font-bold text-gray-800 leading-tight mt-0.5">
-                      {date.getDate()}
-                    </p>
-                  </div>
+            {upcomingDays.map((day) => {
+              const dateObj = new Date(day.date + "T00:00:00.000Z")
+              const weekLabel = cycleWeekLabels[day.cycleWeekId] ?? `Week ${day.cycleWeekId}`
+              const firstSession = day.sessions[0]
+              const firstLine = firstSession ? firstSession.label : null
 
-                  {/* Workout info */}
-                  <div className="flex-1 min-w-0 pt-0.5">
-                    <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">
-                      Week {w}
-                    </span>
-                    {firstLine ? (
-                      <p className="text-sm text-gray-700 truncate">{firstLine}</p>
-                    ) : (
-                      <p className="text-sm text-gray-300">Rest or no entry</p>
-                    )}
-                  </div>
+              return (
+                <li key={day.id}>
+                  <Link
+                    href={`/plan/${day.date}`}
+                    className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded-xl transition-colors"
+                  >
+                    {/* Date column */}
+                    <div className="w-10 shrink-0 text-center">
+                      <p className="text-[11px] font-semibold uppercase text-gray-400 leading-none">
+                        {dateObj.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}
+                      </p>
+                      <p className="text-lg font-bold text-gray-800 leading-tight mt-0.5">
+                        {dateObj.getUTCDate()}
+                      </p>
+                    </div>
 
-                  {/* Chevron */}
-                  <svg className="shrink-0 text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                </Link>
-              </li>
-            ))}
+                    {/* Workout info */}
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">
+                        {weekLabel}
+                      </span>
+                      {day.isRestDay ? (
+                        <p className="text-sm text-gray-300">Rest</p>
+                      ) : firstLine ? (
+                        <p className="text-sm text-gray-700 truncate">{firstLine}</p>
+                      ) : (
+                        <p className="text-sm text-gray-300">No sessions</p>
+                      )}
+                    </div>
+
+                    {/* Chevron */}
+                    <svg className="shrink-0 text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </Link>
+                </li>
+              )
+            })}
           </ul>
-        </section>
-
-        {/* Plan info */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                Active plan
-              </p>
-              <p className="text-sm font-medium text-gray-800 mt-1">{plan.title}</p>
-            </div>
-            <Link href="/onboarding" className="text-sm text-orange-500 hover:underline">
-              Update plan
-            </Link>
-          </div>
         </section>
 
         {/* Recent workouts */}
