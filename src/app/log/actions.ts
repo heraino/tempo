@@ -4,6 +4,7 @@ import { auth } from "@/auth"
 import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
 import { parseFitBuffer } from "@/lib/fit/parser"
+import { uploadWorkoutSchema } from "@/lib/validation/actions"
 
 export async function uploadWorkout(formData: FormData) {
   const session = await auth()
@@ -13,14 +14,17 @@ export async function uploadWorkout(formData: FormData) {
   if (!file || file.size === 0) return { error: "Please choose a .fit file" }
   if (!file.name.toLowerCase().endsWith(".fit")) return { error: "File must be a .fit file" }
 
-  const notes = (formData.get("notes") as string) || null
-  const effortRaw = formData.get("perceivedEffort") as string
-  const perceivedEffort = effortRaw ? parseInt(effortRaw) : null
+  const parsed = uploadWorkoutSchema.safeParse({
+    perceivedEffort: formData.get("perceivedEffort"),
+    notes: formData.get("notes"),
+  })
+  if (!parsed.success) return { error: parsed.error.errors[0].message }
+  const { perceivedEffort, notes } = parsed.data
 
-  let parsed
+  let workout
   try {
     const buffer = Buffer.from(await file.arrayBuffer())
-    parsed = await parseFitBuffer(buffer, file.name)
+    workout = await parseFitBuffer(buffer)
   } catch (err) {
     console.error("FIT parse error:", err)
     return { error: "Could not parse FIT file. Make sure it's a valid Garmin activity." }
@@ -29,57 +33,57 @@ export async function uploadWorkout(formData: FormData) {
   await db.insert(workoutLogs).values({
     userId: session.user.id,
     fitFileName: file.name,
-    startTime: parsed.startTime,
-    totalElapsedSecs: parsed.totalElapsedSecs,
-    totalTimerSecs: parsed.totalTimerSecs,
-    sport: parsed.sport,
-    subSport: parsed.subSport,
-    totalDistanceM: parsed.totalDistanceM,
-    avgHr: parsed.avgHr,
-    maxHr: parsed.maxHr,
-    avgSpeedMps: parsed.avgSpeedMps,
-    maxSpeedMps: parsed.maxSpeedMps,
-    avgCadence: parsed.avgCadence,
-    maxCadence: parsed.maxCadence,
-    totalAscentM: parsed.totalAscentM,
-    totalDescentM: parsed.totalDescentM,
-    avgAltitudeM: parsed.avgAltitudeM,
-    maxAltitudeM: parsed.maxAltitudeM,
-    minAltitudeM: parsed.minAltitudeM,
-    totalCalories: parsed.totalCalories,
-    avgTemperatureC: parsed.avgTemperatureC,
-    maxTemperatureC: parsed.maxTemperatureC,
-    avgVerticalOscillationMm: parsed.avgVerticalOscillationMm,
-    avgStanceTimeMs: parsed.avgStanceTimeMs,
-    avgStanceTimePct: parsed.avgStanceTimePct,
-    avgVerticalRatio: parsed.avgVerticalRatio,
-    avgStrideLengthM: parsed.avgStrideLengthM,
-    trainingLoad: parsed.trainingLoad,
-    aerobicTrainingEffect: parsed.aerobicTrainingEffect,
-    anaerobicTrainingEffect: parsed.anaerobicTrainingEffect,
-    aerobicTeMessage: parsed.aerobicTeMessage,
-    anaerobicTeMessage: parsed.anaerobicTeMessage,
-    avgRespirationRate: parsed.avgRespirationRate,
-    maxRespirationRate: parsed.maxRespirationRate,
-    vo2Max: parsed.vo2Max,
-    necLat: parsed.necLat,
-    necLong: parsed.necLong,
-    swcLat: parsed.swcLat,
-    swcLong: parsed.swcLong,
-    firstHalfAvgHr: parsed.firstHalfAvgHr,
-    secondHalfAvgHr: parsed.secondHalfAvgHr,
-    hrDriftBpm: parsed.hrDriftBpm,
-    runOnlyDistanceM: parsed.runOnlyDistanceM,
-    runOnlyDurationSecs: parsed.runOnlyDurationSecs,
-    runOnlyAvgSpeedMps: parsed.runOnlyAvgSpeedMps,
-    runOnlyAvgHr: parsed.runOnlyAvgHr,
-    walkDurationSecs: parsed.walkDurationSecs,
-    laps: parsed.laps,
-    records: parsed.records,
-    events: parsed.events,
-    deviceInfo: parsed.deviceInfo,
-    notes,
-    perceivedEffort,
+    startTime: workout.startTime,
+    totalElapsedSecs: workout.totalElapsedSecs,
+    totalTimerSecs: workout.totalTimerSecs,
+    sport: workout.sport,
+    subSport: workout.subSport,
+    totalDistanceM: workout.totalDistanceM,
+    avgHr: workout.avgHr,
+    maxHr: workout.maxHr,
+    avgSpeedMps: workout.avgSpeedMps,
+    maxSpeedMps: workout.maxSpeedMps,
+    avgCadence: workout.avgCadence,
+    maxCadence: workout.maxCadence,
+    totalAscentM: workout.totalAscentM,
+    totalDescentM: workout.totalDescentM,
+    avgAltitudeM: workout.avgAltitudeM,
+    maxAltitudeM: workout.maxAltitudeM,
+    minAltitudeM: workout.minAltitudeM,
+    totalCalories: workout.totalCalories,
+    avgTemperatureC: workout.avgTemperatureC,
+    maxTemperatureC: workout.maxTemperatureC,
+    avgVerticalOscillationMm: workout.avgVerticalOscillationMm,
+    avgStanceTimeMs: workout.avgStanceTimeMs,
+    avgStanceTimePct: workout.avgStanceTimePct,
+    avgVerticalRatio: workout.avgVerticalRatio,
+    avgStrideLengthM: workout.avgStrideLengthM,
+    trainingLoad: workout.trainingLoad,
+    aerobicTrainingEffect: workout.aerobicTrainingEffect,
+    anaerobicTrainingEffect: workout.anaerobicTrainingEffect,
+    aerobicTeMessage: workout.aerobicTeMessage,
+    anaerobicTeMessage: workout.anaerobicTeMessage,
+    avgRespirationRate: workout.avgRespirationRate,
+    maxRespirationRate: workout.maxRespirationRate,
+    vo2Max: workout.vo2Max,
+    necLat: workout.necLat,
+    necLong: workout.necLong,
+    swcLat: workout.swcLat,
+    swcLong: workout.swcLong,
+    firstHalfAvgHr: workout.firstHalfAvgHr,
+    secondHalfAvgHr: workout.secondHalfAvgHr,
+    hrDriftBpm: workout.hrDriftBpm,
+    runOnlyDistanceM: workout.runOnlyDistanceM,
+    runOnlyDurationSecs: workout.runOnlyDurationSecs,
+    runOnlyAvgSpeedMps: workout.runOnlyAvgSpeedMps,
+    runOnlyAvgHr: workout.runOnlyAvgHr,
+    walkDurationSecs: workout.walkDurationSecs,
+    laps: workout.laps,
+    records: workout.records,
+    events: workout.events,
+    deviceInfo: workout.deviceInfo,
+    notes: notes ?? null,
+    perceivedEffort: perceivedEffort ?? null,
   })
 
   return { ok: true }
