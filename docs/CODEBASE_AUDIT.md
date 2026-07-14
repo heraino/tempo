@@ -112,7 +112,9 @@ src/
 | `pain_flags` (persistent carry-across-sessions state) | ❌ |
 | `coaching_analyses` (prompt, context, response, model, version) | ❌ |
 | `training_plan_versions` with generic `plan_json` (arbitrary cycle length, user-defined week IDs) | ❌ |
-| `planned_workouts` with `sessions_json` (multi-session days) and `cycle_week_id` | ❌ |
+| `planned_workout_days` (one row per calendar date; FK to plan version) | ❌ |
+| `planned_sessions` (one row per session; `session_kind` from stable taxonomy; independent status: planned/completed/skipped/modified/rescheduled) | ❌ |
+| `session_completions` (FK from planned_session to workout_log; enables strength sessions to complete without FIT) | ❌ |
 | `training_state` with `current_cycle_week_id` (not a fixed ABCD field) | ❌ |
 | `jobs` (background processing queue) | ❌ |
 | `comparator_selections` (which workouts were compared) | ❌ |

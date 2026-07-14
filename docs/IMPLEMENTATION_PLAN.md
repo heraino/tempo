@@ -10,6 +10,8 @@ Governing rules: `CLAUDE.md`
 
 1. **Generic cycle model.** A/B/C/D is seed data only. The plan schema supports an arbitrary number of weeks with user-defined IDs and labels. No TypeScript union or fixed `rotationLength` encodes the four-week assumption.
 2. **Sessions, not booleans.** A day holds zero-to-many `SessionTemplate` objects. Tuesday with a recovery run and pull strength = two session entries. A rest day = zero sessions. No `isRunDay`/`isStrengthDay` flags.
+3. **Stable `SessionKind` taxonomy.** Session classification uses a closed `SessionKind` type (`easy`, `recovery`, `long`, `threshold`, `tempo`, `progression`, `strides`, `strength`, `elastic`, `rest`, `custom`) as the analytics and comparator key. User-defined types use `sessionKind: "custom"` + `customType: string`. This allows analytics to group by kind without parsing free-form strings, while preserving full flexibility.
+4. **Normalized scheduling execution model.** A scheduled day and its individual sessions are separate rows. `planned_workout_days` is one row per calendar date. `planned_sessions` is one row per session within that day, each with independent status (`planned`, `completed`, `skipped`, `modified`, `rescheduled`). `session_completions` is the explicit link between a planned session and a `workout_log`. This cleanly models Tuesday recovery run completed + Tuesday pull strength skipped without any JSON arrays.
 3. **`rotation.ts` is legacy adapter logic.** It is preserved for compatibility during the transition and tested in Phase 1. The canonical scheduling engine introduced in Phase 3 reads `plan_json` only. Once Phase 3 is live and all callers are migrated, `rotation.ts` is removed.
 4. **Structured plan before training state.** Training state (Phase 5) must operate against a real seeded `PlanJson`, not markdown or hard-coded rotation logic. Phase 3 seeds the structured plan and generates the schedule; Phase 5 consumes it.
 5. **Pain observations are separate from context.** `athlete_context` captures subjective workout context (feel, RPE, sleep, travel). `pain_observations` is a normalized model tied to a workout or date that supports longitudinal recurrence queries. `pain_flags` remains the persistent carry-across-sessions state.
@@ -75,14 +77,13 @@ interface DayTemplate {
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 // One training session within a day.
-// sessionType is a free string — not an enum — so user-defined types are valid.
+// sessionKind is the stable analytics/comparator key.
+// When sessionKind === "custom", customType carries the user-defined semantic identifier.
 interface SessionTemplate {
-  sessionType: string   // "easy" | "recovery" | "long" | "threshold" | "tempo" |
-                        // "progression" | "easy+strides" | "strength_push" |
-                        // "strength_pull" | "elastic" | "race" | "run_walk" |
-                        // "fartlek" | "other" — or any user-defined string
-  label: string         // short display name: "Easy aerobic", "Pull strength", "Elastic work"
-  prescription: string  // full human-readable prescription
+  sessionKind: SessionKind      // analytics and historical-comparator key
+  customType?: string           // only when sessionKind === "custom"; e.g. "fartlek", "hill_repeats"
+  label: string                 // short display name: "Easy aerobic", "Pull strength", "Elastic work"
+  prescription: string          // full human-readable prescription
   isRunSession: boolean
   isStrengthSession: boolean
   targetDistanceM?: number
@@ -92,6 +93,23 @@ interface SessionTemplate {
   targetPaceMinPerKm?: number   // for sessions with explicit pace targets
   intervals?: IntervalBlock[]   // present on structured interval sessions
 }
+
+// ─── Session kind ─────────────────────────────────────────────────────────────
+// Closed taxonomy for analytics grouping and historical comparison.
+// Adding values is backward-compatible; removing is a breaking change.
+// "custom" is the escape hatch — pair with customType for user-defined semantics.
+type SessionKind =
+  | "easy"        // easy aerobic run
+  | "recovery"    // recovery run (very easy, short)
+  | "long"        // long run
+  | "threshold"   // interval or cruise threshold work
+  | "tempo"       // continuous tempo run
+  | "progression" // progression run (steady pace increase)
+  | "strides"     // short accelerations (can be a standalone session or post-run)
+  | "strength"    // any strength training (label distinguishes push/pull/full-body)
+  | "elastic"     // elastic/plyometric/drills work
+  | "rest"        // explicit rest (rarely needed as a session; zero sessions = rest day)
+  | "custom"      // user-defined type; pair with customType
 
 // ─── Interval block ───────────────────────────────────────────────────────────
 // Describes one set of repetitions within a session.
@@ -130,49 +148,103 @@ const seedPlan: PlanJson = {
     {
       id: "A", label: "Threshold",
       days: [
-        { weekday: "Monday",    sessions: [{ sessionType: "easy",           label: "Easy aerobic", prescription: "Easy aerobic run + elastic work", isRunSession: true,  isStrengthSession: false }, { sessionType: "elastic", label: "Elastic work", prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Tuesday",   sessions: [{ sessionType: "recovery",       label: "Recovery run", prescription: "Easy recovery run", isRunSession: true, isStrengthSession: false }, { sessionType: "strength_pull", label: "Pull strength", prescription: "Pull strength session", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Wednesday", sessions: [{ sessionType: "threshold",      label: "Threshold intervals", prescription: "6 × 3:00 threshold, 2:00 easy recovery", isRunSession: true, isStrengthSession: false, intervals: [{ reps: 6, workDurationSecs: 180, recDurationSecs: 120, label: "3:00 threshold / 2:00 easy" }] }] },
-        { weekday: "Thursday",  sessions: [{ sessionType: "strength_push",  label: "Push strength", prescription: "Push strength session", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Friday",    sessions: [] },
-        { weekday: "Saturday",  sessions: [{ sessionType: "easy+strides",   label: "Easy + strides", prescription: "40–45 min easy + 4–6 × 20 sec strides", isRunSession: true, isStrengthSession: false }] },
-        { weekday: "Sunday",    sessions: [{ sessionType: "long",           label: "Long run", prescription: "Long run", isRunSession: true, isStrengthSession: false }] },
+        { weekday: "Monday", sessions: [
+          { sessionKind: "easy",     label: "Easy aerobic",  prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "elastic",  label: "Elastic work",  prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Tuesday", sessions: [
+          { sessionKind: "recovery", label: "Recovery run",  prescription: "Easy recovery run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "strength", label: "Pull strength", prescription: "Pull strength session", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Wednesday", sessions: [
+          { sessionKind: "threshold", label: "Threshold intervals", prescription: "6 × 3:00 threshold, 2:00 easy recovery", isRunSession: true, isStrengthSession: false,
+            intervals: [{ reps: 6, workDurationSecs: 180, recDurationSecs: 120, label: "3:00 threshold / 2:00 easy" }] },
+        ]},
+        { weekday: "Thursday", sessions: [
+          { sessionKind: "strength", label: "Push strength", prescription: "Push strength session", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Friday",   sessions: [] },
+        { weekday: "Saturday", sessions: [
+          { sessionKind: "easy",    label: "Easy run", prescription: "40–45 min easy run", isRunSession: true, isStrengthSession: false },
+          { sessionKind: "strides", label: "Strides",  prescription: "4–6 × 20 sec strides", isRunSession: true, isStrengthSession: false },
+        ]},
+        { weekday: "Sunday", sessions: [
+          { sessionKind: "long", label: "Long run", prescription: "Long run", isRunSession: true, isStrengthSession: false },
+        ]},
       ],
     },
     {
       id: "B", label: "Tempo",
       days: [
-        { weekday: "Monday",    sessions: [{ sessionType: "easy", label: "Easy aerobic", prescription: "Easy aerobic run + elastic work", isRunSession: true, isStrengthSession: false }, { sessionType: "elastic", label: "Elastic work", prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Tuesday",   sessions: [{ sessionType: "recovery", label: "Recovery run", prescription: "Easy recovery run", isRunSession: true, isStrengthSession: false }, { sessionType: "strength_pull", label: "Pull strength", prescription: "Pull strength session", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Wednesday", sessions: [{ sessionType: "tempo", label: "Tempo run", prescription: "10–12 min warm-up + 20 min continuous tempo + 10 min cooldown", isRunSession: true, isStrengthSession: false }] },
-        { weekday: "Thursday",  sessions: [{ sessionType: "strength_push", label: "Push strength", prescription: "Push strength session", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Friday",    sessions: [] },
-        { weekday: "Saturday",  sessions: [{ sessionType: "progression", label: "Progression run", prescription: "45–50 min progression run", isRunSession: true, isStrengthSession: false }] },
-        { weekday: "Sunday",    sessions: [{ sessionType: "long", label: "Long run", prescription: "Long run", isRunSession: true, isStrengthSession: false }] },
+        { weekday: "Monday", sessions: [
+          { sessionKind: "easy",    label: "Easy aerobic", prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "elastic", label: "Elastic work", prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Tuesday", sessions: [
+          { sessionKind: "recovery", label: "Recovery run",  prescription: "Easy recovery run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "strength", label: "Pull strength", prescription: "Pull strength session", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Wednesday", sessions: [
+          { sessionKind: "tempo", label: "Tempo run", prescription: "10–12 min warm-up + 20 min continuous tempo + 10 min cooldown", isRunSession: true, isStrengthSession: false },
+        ]},
+        { weekday: "Thursday", sessions: [
+          { sessionKind: "strength", label: "Push strength", prescription: "Push strength session", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Friday",   sessions: [] },
+        { weekday: "Saturday", sessions: [
+          { sessionKind: "progression", label: "Progression run", prescription: "45–50 min progression run", isRunSession: true, isStrengthSession: false },
+        ]},
+        { weekday: "Sunday", sessions: [
+          { sessionKind: "long", label: "Long run", prescription: "Long run", isRunSession: true, isStrengthSession: false },
+        ]},
       ],
     },
     {
       id: "C", label: "Progression",
       days: [
-        { weekday: "Monday",    sessions: [{ sessionType: "easy", label: "Easy aerobic", prescription: "Easy aerobic run + elastic work", isRunSession: true, isStrengthSession: false }, { sessionType: "elastic", label: "Elastic work", prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Tuesday",   sessions: [{ sessionType: "recovery", label: "Recovery run", prescription: "Easy recovery run", isRunSession: true, isStrengthSession: false }, { sessionType: "strength_pull", label: "Pull strength", prescription: "Pull strength session", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Wednesday", sessions: [{ sessionType: "progression", label: "Progression run", prescription: "45–50 min progression run", isRunSession: true, isStrengthSession: false }] },
-        { weekday: "Thursday",  sessions: [{ sessionType: "strength_push", label: "Push strength", prescription: "Push strength session", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Friday",    sessions: [] },
-        { weekday: "Saturday",  sessions: [{ sessionType: "easy", label: "Easy aerobic", prescription: "40–45 min easy aerobic", isRunSession: true, isStrengthSession: false }] },
-        { weekday: "Sunday",    sessions: [{ sessionType: "long", label: "Long run", prescription: "Long run", isRunSession: true, isStrengthSession: false }] },
+        { weekday: "Monday", sessions: [
+          { sessionKind: "easy",    label: "Easy aerobic", prescription: "Easy aerobic run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "elastic", label: "Elastic work", prescription: "Elastic/drills work", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Tuesday", sessions: [
+          { sessionKind: "recovery", label: "Recovery run",  prescription: "Easy recovery run", isRunSession: true,  isStrengthSession: false },
+          { sessionKind: "strength", label: "Pull strength", prescription: "Pull strength session", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Wednesday", sessions: [
+          { sessionKind: "progression", label: "Progression run", prescription: "45–50 min progression run", isRunSession: true, isStrengthSession: false },
+        ]},
+        { weekday: "Thursday", sessions: [
+          { sessionKind: "strength", label: "Push strength", prescription: "Push strength session", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Friday",   sessions: [] },
+        { weekday: "Saturday", sessions: [
+          { sessionKind: "easy", label: "Easy aerobic", prescription: "40–45 min easy aerobic", isRunSession: true, isStrengthSession: false },
+        ]},
+        { weekday: "Sunday", sessions: [
+          { sessionKind: "long", label: "Long run", prescription: "Long run", isRunSession: true, isStrengthSession: false },
+        ]},
       ],
     },
     {
       id: "D", label: "Cutback",
       days: [
-        { weekday: "Monday",    sessions: [{ sessionType: "easy", label: "Easy aerobic", prescription: "Easy aerobic run + reduced elastic work (~80%)", isRunSession: true, isStrengthSession: false }] },
-        { weekday: "Tuesday",   sessions: [{ sessionType: "strength_pull", label: "Pull strength", prescription: "Pull strength (~80%)", isRunSession: false, isStrengthSession: true }] },
+        { weekday: "Monday", sessions: [
+          { sessionKind: "easy", label: "Easy aerobic", prescription: "Easy aerobic run + reduced elastic work (~80%)", isRunSession: true, isStrengthSession: false },
+        ]},
+        { weekday: "Tuesday", sessions: [
+          { sessionKind: "strength", label: "Pull strength", prescription: "Pull strength (~80%)", isRunSession: false, isStrengthSession: true },
+        ]},
         { weekday: "Wednesday", sessions: [] },
-        { weekday: "Thursday",  sessions: [{ sessionType: "strength_push", label: "Push strength", prescription: "Push strength (~80%)", isRunSession: false, isStrengthSession: true }] },
-        { weekday: "Friday",    sessions: [] },
-        { weekday: "Saturday",  sessions: [{ sessionType: "easy", label: "Easy aerobic", prescription: "Easy aerobic run", isRunSession: true, isStrengthSession: false }] },
-        { weekday: "Sunday",    sessions: [{ sessionType: "long", label: "Cutback long run", prescription: "Cutback long run", isRunSession: true, isStrengthSession: false }] },
+        { weekday: "Thursday", sessions: [
+          { sessionKind: "strength", label: "Push strength", prescription: "Push strength (~80%)", isRunSession: false, isStrengthSession: true },
+        ]},
+        { weekday: "Friday",   sessions: [] },
+        { weekday: "Saturday", sessions: [
+          { sessionKind: "easy", label: "Easy aerobic", prescription: "Easy aerobic run", isRunSession: true, isStrengthSession: false },
+        ]},
+        { weekday: "Sunday", sessions: [
+          { sessionKind: "long", label: "Cutback long run", prescription: "Cutback long run", isRunSession: true, isStrengthSession: false },
+        ]},
       ],
     },
   ],
@@ -283,7 +355,7 @@ prior_version_id text → training_plan_versions.id
 created_at       timestamp defaultNow
 ```
 
-**`planned_workouts`** — one row per day, generated by the scheduling engine from the active plan version
+**`planned_workout_days`** — one row per calendar date in the generated schedule
 ```
 id               text PK
 user_id          → user.id CASCADE
@@ -291,14 +363,70 @@ plan_version_id  → training_plan_versions.id
 scheduled_date   date NOT NULL
 weekday          text NOT NULL      -- "Monday" | "Tuesday" | etc.
 cycle_week_id    text NOT NULL      -- CycleWeek.id ("A", "B", "base", etc.)
-sessions_json    jsonb NOT NULL     -- SessionTemplate[] from DayTemplate.sessions
-is_rest_day      boolean NOT NULL   -- true when sessions_json is empty
-completed        boolean default false
-workout_log_ids  jsonb              -- text[] of linked workout_log.id (supports doubles)
-adjustment_reason text
-adjustment_source text              -- "athlete" | "system"
-adjustment_date  timestamp
+is_rest_day      boolean NOT NULL   -- true when no planned_sessions exist for this day
 created_at       timestamp defaultNow
+
+UNIQUE(user_id, scheduled_date, plan_version_id)
+```
+
+**`planned_sessions`** — one row per individual session; independently tracked
+```
+id                    text PK
+planned_day_id        → planned_workout_days.id CASCADE
+user_id               → user.id CASCADE
+plan_version_id       → training_plan_versions.id
+session_kind          text NOT NULL      -- SessionKind value from taxonomy
+custom_type           text               -- set only when session_kind = "custom"
+label                 text NOT NULL      -- "Easy aerobic", "Pull strength", "Strides", etc.
+prescription          text NOT NULL      -- full human-readable prescription
+is_run_session        boolean NOT NULL
+is_strength_session   boolean NOT NULL
+sequence_in_day       integer NOT NULL   -- 0-based ordering within the day
+target_distance_m     real
+target_duration_secs  real
+target_hr_min         integer
+target_hr_max         integer
+target_pace_min_per_km real
+intervals_json        jsonb              -- IntervalBlock[]; null if no intervals
+status                text NOT NULL default 'planned'
+                                         -- planned | completed | skipped | modified | rescheduled
+adjustment_reason     text               -- why status changed from planned
+adjustment_source     text               -- "athlete" | "system"
+rescheduled_from_id   text → planned_sessions.id  -- set on sessions moved from another day
+original_prescription text               -- snapshot of prescription before a "modified" change
+created_at            timestamp defaultNow
+updated_at            timestamp defaultNow
+```
+
+**`session_completions`** — explicit link between a planned session and a workout log
+```
+id                   text PK
+planned_session_id   → planned_sessions.id
+user_id              → user.id CASCADE
+workout_log_id       → workout_log.id (nullable — strength/elastic can complete without FIT)
+completed_at         timestamp NOT NULL
+notes                text
+created_at           timestamp defaultNow
+
+UNIQUE(planned_session_id)   -- one completion per session for MVP;
+                              -- re-upload replaces by deleting and reinserting
+```
+
+*State transitions:*
+- Default → `planned`
+- Athlete uploads FIT and links to session → `session_completions` row inserted → status = `completed`
+- Athlete marks session done without FIT (strength, elastic) → `session_completions` row with null `workout_log_id` → status = `completed`
+- Athlete marks session skipped → status = `skipped`, no completion row
+- Prescription changed (target HR, distance, notes) → status = `modified`, `original_prescription` saved, columns updated
+- Session moved to different date → original row status = `rescheduled`; new `planned_sessions` row on target date with `rescheduled_from_id` pointing back
+
+*Example — Tuesday with two independent sessions:*
+```
+planned_workout_days: { scheduled_date: "2026-07-21", weekday: "Tuesday", cycle_week_id: "A", is_rest_day: false }
+  planned_sessions[0]: { session_kind: "recovery", label: "Recovery run", sequence_in_day: 0, status: "completed" }
+    session_completions:  { workout_log_id: "wl_abc123", completed_at: "2026-07-21T07:30:00Z" }
+  planned_sessions[1]: { session_kind: "strength",  label: "Pull strength", sequence_in_day: 1, status: "skipped" }
+    (no session_completion row)
 ```
 
 **`training_state`** — one row per user, updated deterministically
@@ -355,12 +483,12 @@ updated_at  timestamp defaultNow
 
 **New nullable columns on `workout_log`** (existing rows unaffected):
 ```
-fit_file_id            → fit_files.id (nullable)
-planned_workout_id     → planned_workouts.id (nullable)
-planned_workout_type   text       -- prescribed session type
-observed_workout_type  text       -- classified at parse time
-athlete_timezone       text       -- IANA tz string, captured at upload
+fit_file_id           → fit_files.id (nullable)
+observed_session_kind text       -- SessionKind classified at parse time
+athlete_timezone      text       -- IANA tz string, captured at upload
 ```
+
+Note: the planned session link runs through `session_completions.workout_log_id`, not a column on `workout_log`. One workout log can be linked by at most one completion row, and lookups go through `session_completions` where needed. `workout_log` carries no FK back to `planned_sessions` to avoid circular dependency.
 
 ---
 
@@ -437,6 +565,8 @@ export default {
 Key constraints to verify:
 - `fit_files`: `unique("fit_files_user_sha256").on(t.userId, t.sha256)`
 - `athlete_context`: `unique("athlete_context_workout_log_id").on(t.workoutLogId)`
+- `planned_workout_days`: `unique("pwd_user_date_version").on(t.userId, t.scheduledDate, t.planVersionId)`
+- `session_completions`: `unique("sc_planned_session_id").on(t.plannedSessionId)`
 - All FKs on new columns in `workout_log` are nullable
 
 ---
@@ -481,7 +611,7 @@ interface FitData {
 
 #### 1.5 — New file: `src/lib/plan/types.ts`
 
-Contains the `PlanJson`, `CycleWeek`, `DayTemplate`, `SessionTemplate`, `IntervalBlock`, `MileageBand`, and `Weekday` types exactly as specified in the interfaces section above. No logic — types only.
+Contains `PlanJson`, `CycleWeek`, `DayTemplate`, `SessionTemplate`, `SessionKind`, `IntervalBlock`, `MileageBand`, and `Weekday` types exactly as specified in the interfaces section above. No logic — types only. `SessionKind` is exported separately so analytics and comparator code can import it without pulling in the whole plan model.
 
 ---
 
@@ -610,20 +740,21 @@ No new runtime dependencies in Phase 1. Blob and openai are Phase 2 and Phase 6 
 **Goal:** The app generates planned workouts from `plan_json`, not from `rotation.ts` or markdown. After this phase, `training_state` can operate against real structured data.
 
 - **`src/lib/plan/types.ts`** — already created in Phase 1
-- **`src/lib/plan/scheduler.ts`** — `generatePlannedWorkouts(planVersion, fromDate, days)`:
+- **`src/lib/plan/scheduler.ts`** — `generateSchedule(planVersion, fromDate, days)`:
   - Reads `plan_json.cycleWeeks` array
   - Computes which cycle week falls on each calendar date using `cycle_start_date` and `cycle_start_week_id`
-  - Looks up the `DayTemplate` for each weekday
-  - Inserts rows into `planned_workouts`
+  - For each date: inserts one `planned_workout_days` row + one `planned_sessions` row per session in the matching `DayTemplate`; `sequence_in_day` preserves session order
+  - Returns counts of days and sessions created
   - No reference to `rotation.ts`
 - **`src/lib/plan/seed.ts`** — one-time migration script:
   - Reads existing `training_plan` rows
-  - Constructs a `PlanJson` from the seed template (using `start_week` as `cycle_start_week_id`)
-  - Inserts the first `training_plan_version`
-  - Runs `generatePlannedWorkouts` for the next 90 days
-- **`src/lib/services/plan.service.ts`** — add `getActivePlanVersion`, `getTodaysPlannedWorkouts`, `getPlannedWorkoutsRange`
-- **`src/app/dashboard/page.tsx`** — replace `extractWorkout()` + `rotation.ts` calls with `getPlannedWorkoutsRange(userId, today, 7)` from service
-- **`src/app/plan/[week]/[day]/page.tsx`** — retire this route; replace with `/plan/[date]` (keyed by calendar date, reads from `planned_workouts`)
+  - Constructs the seed `PlanJson` (using `start_week` as `cycle_start_week_id`)
+  - Inserts the first `training_plan_version` row
+  - Calls `generateSchedule` for the next 90 days
+- **`src/lib/services/plan.service.ts`** — add `getActivePlanVersion`, `getDayWithSessions(userId, date)`, `getScheduleRange(userId, fromDate, days)`; each day response includes the `planned_sessions` rows with their current statuses
+- **`src/lib/services/completion.service.ts`** — new; `completeSession(plannedSessionId, workoutLogId?)`, `skipSession(plannedSessionId, reason?)`, `rescheduleSession(plannedSessionId, newDate)`; these mutate `planned_sessions.status` and manage `session_completions` rows
+- **`src/app/dashboard/page.tsx`** — replace `extractWorkout()` + `rotation.ts` calls with `getScheduleRange(userId, today, 7)` from service; render session list with status chips
+- **`src/app/plan/[week]/[day]/page.tsx`** — retire this route; replace with `/plan/[date]` (keyed by calendar date, reads `planned_workout_days` + `planned_sessions` for that date)
 - **`src/lib/rotation.ts`** — callers removed; file retained but JSDoc updated to "all callers migrated, safe to remove in next cleanup"
 
 ---
@@ -663,3 +794,5 @@ Pages and actions call `src/lib/services/*.service.ts`. Services call `db` direc
 | Timezone bug in existing dashboard | Phase 1 adds opt-in fix; callers pass `athlete_timezone` once captured in Phase 2 |
 | `pain_observations` — multiple rows per workout | Expected and correct; queries filter by `workout_log_id` or `observation_date` |
 | Phase 3 replaces `/plan/[week]/[day]` route | Keep old route as redirect to new `/plan/[date]` until all links updated |
+| `session_completions` UNIQUE(planned_session_id) blocks re-upload correction | Delete old completion row before inserting the replacement; wrap in a transaction |
+| `sequence_in_day` ordering out of sync after rescheduling | Rescheduled sessions inserted at sequence = max(existing) + 1 on the target day; resequence only needed when user reorders via editor (Phase 8) |
