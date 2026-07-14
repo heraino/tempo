@@ -104,15 +104,16 @@ src/
 | Required table/column | Missing |
 |---|---|
 | Raw FIT file storage (blob URL + SHA-256) | ❌ FIT bytes are parsed and discarded |
-| `fit_file_sha256` deduplication column | ❌ |
+| `fit_files` with `UNIQUE(user_id, sha256)` | ❌ SHA-256 uniqueness scoped to user |
 | `parser_version` metadata | ❌ |
 | `planned_workout_type` / `observed_workout_type` | ❌ |
-| `athlete_context` (temperature, pain, sleep, travel) | ❌ (only RPE + notes) |
-| `pain_flags` table | ❌ |
+| `athlete_context` (temp, sleep, travel — one-to-one with workout_log) | ❌ (only RPE + notes exist; one-to-one not enforced) |
+| `pain_observations` (per-location per-workout; supports longitudinal recurrence queries) | ❌ |
+| `pain_flags` (persistent carry-across-sessions state) | ❌ |
 | `coaching_analyses` (prompt, context, response, model, version) | ❌ |
-| `training_plan_versions` (versioned JSON plan) | ❌ |
-| `planned_workouts` (generated schedule) | ❌ |
-| `training_state` (block, mileage band, flags) | ❌ |
+| `training_plan_versions` with generic `plan_json` (arbitrary cycle length, user-defined week IDs) | ❌ |
+| `planned_workouts` with `sessions_json` (multi-session days) and `cycle_week_id` | ❌ |
+| `training_state` with `current_cycle_week_id` (not a fixed ABCD field) | ❌ |
 | `jobs` (background processing queue) | ❌ |
 | `comparator_selections` (which workouts were compared) | ❌ |
 
@@ -135,18 +136,18 @@ src/
 
 ## 5. What to preserve (do not break)
 
-| Item | Reason |
-|---|---|
-| `src/auth.ts` | Auth.js config is correct and working |
-| `src/lib/db/index.ts` | Neon HTTP driver; correct pattern for serverless |
-| Auth table names in schema.ts | Singular names required by DrizzleAdapter |
-| `src/middleware.ts` | Edge auth protection; add new routes but don't restructure |
-| `src/lib/rotation.ts` | Rotation logic is correct; will be used by scheduling engine |
-| `src/lib/fmt.ts` | Display formatters are correct |
-| `next.config.ts` DATABASE_URL fallback | Enables `next build` without real credentials |
-| `next.config.ts` serverExternalPackages | Required for CommonJS fit-file-parser |
-| `.env.example` | Documents all required env vars |
-| `.gitignore` env patterns | Explicit patterns; must not be replaced with broad `*.env*` glob |
+| Item | Disposition | Reason |
+|---|---|---|
+| `src/auth.ts` | Preserve permanently | Auth.js config is correct and working |
+| `src/lib/db/index.ts` | Preserve permanently | Neon HTTP driver; correct pattern for serverless |
+| Auth table names in schema.ts | Preserve permanently | Singular names required by DrizzleAdapter |
+| `src/middleware.ts` | Preserve; extend | Edge auth protection; add new routes but don't restructure |
+| `src/lib/rotation.ts` | **Legacy — preserve until Phase 3 migration complete** | Provides `getRotationWeek`, `extractWorkout` used by current dashboard and plan pages. The canonical scheduling engine (Phase 3) reads `plan_json` and does not call these. Once all callers are migrated, this file is deleted. |
+| `src/lib/fmt.ts` | Preserve permanently | Display formatters are correct |
+| `next.config.ts` DATABASE_URL fallback | Preserve permanently | Enables `next build` without real credentials |
+| `next.config.ts` serverExternalPackages | Preserve permanently | Required for CommonJS fit-file-parser |
+| `.env.example` | Extend | Documents all required env vars |
+| `.gitignore` env patterns | Preserve permanently | Explicit patterns; must not be replaced with broad `*.env*` glob |
 
 ---
 
@@ -178,8 +179,8 @@ PRD principle: "Raw workout files are immutable." Currently FIT bytes are parsed
 ### R4 — No Zod validation on server actions
 `uploadWorkout` and `savePlan` accept raw `FormData` with no schema validation. Any structural mismatch reaches the DB. Zod must be added before the action surface grows.
 
-### R5 — Training plan stored as raw markdown
-The PRD requires `plan_json` — a structured schedule that the scheduling engine generates future workouts from. The current `content` column stores raw markdown. These are different representations. Phase 1 must define the `plan_json` structure and migration path without breaking the existing markdown display.
+### R5 — Training plan stored as raw markdown; plan model was hard-coded to ABCD
+The PRD requires `plan_json` — a structured schedule from which the scheduling engine generates future workouts. The current `content` column stores raw markdown. Additionally, the original plan design fixed `rotationLength: 4` and `rotationLabels: ["A","B","C","D"]` as TypeScript literals, which encodes the seed plan as a product assumption. The revised model uses a generic `cycleWeeks: CycleWeek[]` array with user-defined IDs and labels. Phase 1 defines the `PlanJson` types (generic). Phase 3 seeds the first version from existing markdown and migrates the scheduling engine. Both representations coexist during the transition; markdown `content` is retained for display.
 
 ### R6 — No data service layer
 CLAUDE.md: "Keep data access in repositories/services." Currently all DB queries are inline in Next.js page server components and server actions. This will become unmaintainable when coaching analyses, comparators, and training state are added.
@@ -194,7 +195,13 @@ PRD: "compute SHA-256; reject exact duplicates; detect likely duplicate activiti
 `rotation.ts` uses `new Date()` which returns the server's UTC time. The PRD says "The app reads athlete timezone." For users in non-UTC timezones, `getTodayInfo` will return the wrong day after midnight UTC. This needs timezone-aware date handling.
 
 ### R10 — `vo2Max` field mapped incorrectly
-In `parser.ts` line 274: `vo2Max: n(session.enhanced_avg_respiration_rate) ?? n(session.vo2_max_data)` — `enhanced_avg_respiration_rate` is not VO2max. This is a field mapping bug.
+In `parser.ts` line 274: `vo2Max: n(session.enhanced_avg_respiration_rate) ?? n(session.vo2_max_data)` — `enhanced_avg_respiration_rate` is not VO2max. Fix in Phase 1: use `n(session.vo2_max_data)` only.
+
+### R11 — `pain_observations` absent; pain fields in wrong table
+Pain capture (location, level, character, onset) belongs in a normalized `pain_observations` table (one row per body part per workout), not flattened into `athlete_context`. Without a separate model, queries such as "does left knee pain recur after threshold sessions?" cannot be answered correctly. `athlete_context` retains only subjective workout context (feel, RPE, sleep, travel, illness, nutrition).
+
+### R12 — Scheduling engine cannot exist without a structured plan model
+The PRD requires `"Generate schedules from active training_plan_versions.plan_json."` No structured plan exists yet. Until Phase 3 seeds the first `training_plan_version`, the dashboard, today's workout, and planned_workouts all depend on `rotation.ts` + markdown extraction — both of which are legacy adapter logic that must be retired.
 
 ---
 
