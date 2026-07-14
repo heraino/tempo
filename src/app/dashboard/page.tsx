@@ -6,7 +6,7 @@ import { workoutLogs } from "@/lib/db/schema"
 import { eq, desc } from "drizzle-orm"
 import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.service"
 import { resolveLocalDate } from "@/lib/plan/localDate"
-import { fmtPace, fmtDistance, fmtDuration, fmtDate } from "@/lib/fmt"
+import { RecentWorkoutsCard } from "@/components/RecentWorkoutsCard"
 
 export default async function DashboardPage() {
   const session = await auth()
@@ -147,68 +147,7 @@ export default async function DashboardPage() {
         {/* Recent workouts */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Recent workouts</h2>
-
-          {recentLogs.length === 0 ? (
-            <p className="text-sm text-gray-400">
-              No workouts logged yet.{" "}
-              <Link href="/log" className="text-orange-500 hover:underline">
-                Upload your first one →
-              </Link>
-            </p>
-          ) : (
-            <ul className="space-y-0 divide-y divide-gray-50">
-              {recentLogs.map((log) => {
-                const sport = log.sport
-                  ? log.sport.charAt(0).toUpperCase() + log.sport.slice(1)
-                  : "Activity"
-                return (
-                  <li key={log.id}>
-                    <Link
-                      href={`/workout/${log.id}`}
-                      className="flex items-center justify-between py-4 gap-4 hover:bg-gray-50 -mx-2 px-2 rounded-xl transition-colors"
-                    >
-                      {/* Left: sport, date, effort */}
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-gray-900">{sport}</p>
-                          {log.perceivedEffort && (
-                            <span className="text-[10px] font-semibold bg-orange-50 text-orange-500 rounded-full px-2 py-0.5">
-                              {log.perceivedEffort}/5
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {fmtDate(new Date(log.startTime))}
-                        </p>
-                        {/* Key stats row */}
-                        <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
-                          <span className="font-semibold text-gray-800">{fmtDistance(log.totalDistanceM)}</span>
-                          <span className="text-gray-300">·</span>
-                          <span>{fmtDuration(log.totalTimerSecs)}</span>
-                          <span className="text-gray-300">·</span>
-                          <span>{fmtPace(log.avgSpeedMps)}</span>
-                        </div>
-                        {/* HR row */}
-                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
-                          {log.avgHr && <span>HR {log.avgHr} bpm</span>}
-                          {log.hrDriftBpm != null && (
-                            <span className={log.hrDriftBpm > 5 ? "text-amber-500" : ""}>
-                              drift {log.hrDriftBpm > 0 ? "+" : ""}{log.hrDriftBpm.toFixed(1)} bpm
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right: chevron */}
-                      <svg className="shrink-0 text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M9 18l6-6-6-6" />
-                      </svg>
-                    </Link>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+          <RecentWorkoutsCard logs={recentLogs} />
         </section>
 
       </div>

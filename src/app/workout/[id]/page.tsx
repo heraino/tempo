@@ -97,6 +97,31 @@ export default async function WorkoutDetailPage({
 
   const laps = (log.laps as Record<string, unknown>[] | null) ?? []
 
+  // Backward-compat: old rows stored training_load_peak as raw scaled uint32 (scale=65536)
+  const displayTrainingLoad =
+    log.trainingLoad != null
+      ? log.trainingLoad > 1000
+        ? log.trainingLoad / 65536
+        : log.trainingLoad
+      : null
+
+  // Laps totals for the summary row
+  let lapSumDist = 0, lapSumTime = 0, lapSumAscent = 0, lapSumDescent = 0
+  let lapHasElevation = false
+  for (const lap of laps) {
+    lapSumDist += (lap.total_distance as number | undefined) ?? 0
+    lapSumTime += ((lap.total_timer_time ?? lap.total_elapsed_time) as number | undefined) ?? 0
+    const a = lap.total_ascent as number | undefined
+    const d = lap.total_descent as number | undefined
+    if (a != null) { lapSumAscent += a; lapHasElevation = true }
+    if (d != null) lapSumDescent += d
+  }
+  const lapTotalSpeed = lapSumTime > 0 ? lapSumDist / lapSumTime : null
+  const lapTotalGapSpeed =
+    lapHasElevation && lapTotalSpeed != null && lapSumDist > 0
+      ? lapTotalSpeed * (1 + 0.029 * ((lapSumAscent - lapSumDescent) / lapSumDist) * 100)
+      : null
+
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
       <div className="max-w-2xl mx-auto space-y-5">
@@ -260,11 +285,11 @@ export default async function WorkoutDetailPage({
         )}
 
         {/* Training impact */}
-        {(log.trainingLoad != null || log.aerobicTrainingEffect != null) && (
+        {(displayTrainingLoad != null || log.aerobicTrainingEffect != null) && (
           <Section title="Training impact">
             <StatGrid>
-              {log.trainingLoad != null && (
-                <Stat label="Training load" value={fmtNum(log.trainingLoad, 0)} />
+              {displayTrainingLoad != null && (
+                <Stat label="Training load" value={fmtNum(displayTrainingLoad, 0)} />
               )}
               {log.aerobicTrainingEffect != null && (
                 <Stat
@@ -342,6 +367,7 @@ export default async function WorkoutDetailPage({
                     <th className="pb-2 font-semibold pr-3">Dist</th>
                     <th className="pb-2 font-semibold pr-3">Time</th>
                     <th className="pb-2 font-semibold pr-3">Pace</th>
+                    <th className="pb-2 font-semibold pr-3">GAP</th>
                     <th className="pb-2 font-semibold pr-3">HR</th>
                   </tr>
                 </thead>
@@ -349,18 +375,38 @@ export default async function WorkoutDetailPage({
                   {laps.map((lap, i) => {
                     const dist = lap.total_distance as number | undefined
                     const time = (lap.total_timer_time ?? lap.total_elapsed_time) as number | undefined
-                    const speed = lap.avg_speed as number | undefined
+                    const speed = (
+                      lap.avg_speed ??
+                      lap.enhanced_avg_speed ??
+                      (dist && time && time > 0 ? dist / time : undefined)
+                    ) as number | undefined
                     const hr = lap.avg_heart_rate as number | undefined
+                    const ascent = lap.total_ascent as number | undefined
+                    const descent = lap.total_descent as number | undefined
+                    const gapSpeed =
+                      ascent != null && descent != null && dist && dist > 0 && speed
+                        ? speed * (1 + 0.029 * ((ascent - descent) / dist) * 100)
+                        : null
                     return (
-                      <tr key={i} className="border-b border-gray-50 last:border-0">
+                      <tr key={i} className="border-b border-gray-50">
                         <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
                         <td className="py-2 pr-3 font-medium text-gray-800">{fmtDistance(dist ?? null)}</td>
                         <td className="py-2 pr-3 text-gray-600">{fmtDuration(time ?? null)}</td>
                         <td className="py-2 pr-3 text-gray-600">{fmtPace(speed ?? null)}</td>
+                        <td className="py-2 pr-3 text-gray-600">{fmtPace(gapSpeed)}</td>
                         <td className="py-2 pr-3 text-gray-600">{hr ? `${hr} bpm` : "—"}</td>
                       </tr>
                     )
                   })}
+                  {/* Totals row */}
+                  <tr className="border-t-2 border-gray-100 font-semibold text-gray-800">
+                    <td className="pt-3 pr-3 text-gray-400">Σ</td>
+                    <td className="pt-3 pr-3">{fmtDistance(lapSumDist || null)}</td>
+                    <td className="pt-3 pr-3">{fmtDuration(lapSumTime || null)}</td>
+                    <td className="pt-3 pr-3">{fmtPace(lapTotalSpeed)}</td>
+                    <td className="pt-3 pr-3">{fmtPace(lapTotalGapSpeed)}</td>
+                    <td className="pt-3 pr-3"></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
