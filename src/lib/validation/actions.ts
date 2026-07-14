@@ -1,8 +1,8 @@
 import { z } from "zod"
 
-// ─── Coercion helper ──────────────────────────────────────────────────────────
-// FormData values arrive as strings (or null). Empty strings should map to
-// undefined so optional fields aren't coerced to 0 / NaN.
+// ─── Coercion helpers ─────────────────────────────────────────────────────────
+// FormData values arrive as strings (or null). Empty strings and null should
+// map to undefined so optional fields aren't coerced to 0 / NaN / rejected.
 const optionalInt = z.preprocess(
   (v) => (v === "" || v === null || v === undefined ? undefined : v),
   z.coerce.number().int().optional()
@@ -12,6 +12,14 @@ const optionalFloat = z.preprocess(
   (v) => (v === "" || v === null || v === undefined ? undefined : v),
   z.coerce.number().optional()
 )
+
+// FormData.get() returns null for fields absent from the DOM (e.g. collapsed
+// collapsibles). z.string().optional() rejects null, so preprocess null → undefined.
+const optionalString = (maxLen: number) =>
+  z.preprocess(
+    (v) => (v === null ? undefined : v),
+    z.string().max(maxLen).optional()
+  )
 
 // ─── Pain observation entry ───────────────────────────────────────────────────
 
@@ -36,13 +44,13 @@ export const uploadWorkoutSchema = z.object({
   perceivedEffort: optionalInt.pipe(
     z.number().int().min(1).max(5).optional()
   ),
-  notes: z.string().max(2000).optional(),
+  notes: optionalString(2000),
 
   // Timezone — IANA tz name captured from the browser at upload time
-  timezone: z.string().max(100).optional(),
+  timezone: optionalString(100),
 
   // Athlete context — subjective workout conditions
-  feel: z.string().max(500).optional(),
+  feel: optionalString(500),
   outsideTempC: optionalFloat.pipe(z.number().min(-50).max(60).optional()),
   humidityPct: optionalFloat.pipe(z.number().min(0).max(100).optional()),
   sleepQuality: optionalInt.pipe(z.number().int().min(1).max(5).optional()),
@@ -50,8 +58,8 @@ export const uploadWorkoutSchema = z.object({
   travel: z.preprocess((v) => v === "on" || v === true, z.boolean()).optional().default(false),
   massage: z.preprocess((v) => v === "on" || v === true, z.boolean()).optional().default(false),
   illness: z.preprocess((v) => v === "on" || v === true, z.boolean()).optional().default(false),
-  nutritionNotes: z.string().max(500).optional(),
-  contextFreeText: z.string().max(1000).optional(),
+  nutritionNotes: optionalString(500),
+  contextFreeText: optionalString(1000),
 
   // Pain observations — JSON-encoded array written by the client before submit
   painEntriesJson: z
