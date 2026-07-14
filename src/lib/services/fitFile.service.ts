@@ -2,6 +2,9 @@ import { db } from "@/lib/db"
 import { fitFiles, workoutLogs } from "@/lib/db/schema"
 import { and, eq } from "drizzle-orm"
 
+// Mirrors the parse_status column values; keep in sync with schema comment.
+export type ParseStatus = "pending" | "parsed" | "failed" | "workout_save_failed"
+
 export async function findFitFileByUserAndSha256(userId: string, sha256: string) {
   const rows = await db
     .select()
@@ -32,5 +35,30 @@ export async function findWorkoutByFitFileId(fitFileId: string, userId: string) 
     .from(workoutLogs)
     .where(and(eq(workoutLogs.fitFileId, fitFileId), eq(workoutLogs.userId, userId)))
     .limit(1)
+  return rows[0] ?? null
+}
+
+/**
+ * Transitions the parse_status of a fit_file record.
+ *
+ * Call sequence:
+ *   createFitFile()             → status defaults to "pending"
+ *   updateFitFileParseStatus(id, "failed", err.message)          — parse threw
+ *   updateFitFileParseStatus(id, "workout_save_failed", msg)     — parse ok, DB write failed
+ *   updateFitFileParseStatus(id, "parsed")                       — fully persisted
+ */
+export async function updateFitFileParseStatus(
+  id: string,
+  status: ParseStatus,
+  parseError?: string
+) {
+  const rows = await db
+    .update(fitFiles)
+    .set({
+      parseStatus: status,
+      parseError: parseError ?? null,
+    })
+    .where(eq(fitFiles.id, id))
+    .returning({ id: fitFiles.id, parseStatus: fitFiles.parseStatus })
   return rows[0] ?? null
 }

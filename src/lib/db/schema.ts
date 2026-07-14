@@ -53,6 +53,11 @@ export const verificationTokens = pgTable(
 // Immutable raw FIT file storage. UNIQUE(user_id, sha256) prevents duplicate
 // uploads of the same activity from the same athlete.
 
+// parseStatus lifecycle:
+//   pending  — blob stored, not yet parsed
+//   parsed   — parsed + workout_log persisted
+//   failed   — parser threw; parseError holds the message
+//   workout_save_failed — parsed ok but workout_log insert failed; reprocessable
 export const fitFiles = pgTable(
   "fit_file",
   {
@@ -63,6 +68,8 @@ export const fitFiles = pgTable(
     fileSizeBytes: integer("file_size_bytes"),
     blobUrl: text("blob_url"),
     parserVersion: text("parser_version").notNull(),
+    parseStatus: text("parse_status").notNull().default("pending"),
+    parseError: text("parse_error"),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (t) => [unique().on(t.userId, t.sha256)]

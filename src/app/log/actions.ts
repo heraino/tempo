@@ -6,7 +6,7 @@ import { parseFitBuffer, PARSER_VERSION } from "@/lib/fit/parser"
 import { extractFitFromZip } from "@/lib/fit/zip"
 import { uploadRawFile } from "@/lib/storage/blob"
 import { uploadWorkoutSchema } from "@/lib/validation/actions"
-import { findFitFileByUserAndSha256, createFitFile, findWorkoutByFitFileId } from "@/lib/services/fitFile.service"
+import { findFitFileByUserAndSha256, createFitFile, findWorkoutByFitFileId, updateFitFileParseStatus } from "@/lib/services/fitFile.service"
 import { createWorkout } from "@/lib/services/workout.service"
 import { upsertAthleteContext } from "@/lib/services/athleteContext.service"
 import { createPainObservations } from "@/lib/services/painObservation.service"
@@ -105,6 +105,8 @@ export async function uploadWorkout(formData: FormData) {
     parsed = await parseFitBuffer(fitBuffer)
   } catch (err) {
     console.error("FIT parse error:", err)
+    const msg = err instanceof Error ? err.message : String(err)
+    await updateFitFileParseStatus(fitFile.id, "failed", msg).catch(console.error)
     return {
       error: "Could not parse FIT file. Your source file has been saved and can be re-processed.",
       fitFileId: fitFile.id,
@@ -173,11 +175,16 @@ export async function uploadWorkout(formData: FormData) {
     })
   } catch (err) {
     console.error("workout_log insert error:", err)
+    const msg = err instanceof Error ? err.message : String(err)
+    await updateFitFileParseStatus(fitFile.id, "workout_save_failed", msg).catch(console.error)
     return {
       error: "Failed to save workout. Your source file has been preserved.",
       fitFileId: fitFile.id,
     }
   }
+
+  // ── 11b. Mark fit_file as fully parsed ───────────────────────────────────────
+  await updateFitFileParseStatus(fitFile.id, "parsed").catch(console.error)
 
   // ── 12. Athlete context ───────────────────────────────────────────────────────
   const hasContext =

@@ -8,6 +8,13 @@
       "when": 1784005670893,
       "tag": "0000_abnormal_pride",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784008723484,
+      "tag": "0001_add_fit_file_parse_status",
+      "breakpoints": true
     }
   ]
 }
