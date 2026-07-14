@@ -215,27 +215,30 @@ export async function generateSchedule(
     daysCreated++
 
     const dayId = dayRows[0].id
-    for (const s of plan.sessions) {
-      await db.insert(plannedSessions).values({
-        plannedDayId: dayId,
-        userId,
-        planVersionId,
-        sessionKind: s.sessionKind,
-        customType: s.customType,
-        label: s.label,
-        prescription: s.prescription,
-        isRunSession: s.isRunSession,
-        isStrengthSession: s.isStrengthSession,
-        sequenceInDay: s.sequenceInDay,
-        targetDistanceM: s.targetDistanceM,
-        targetDurationSecs: s.targetDurationSecs,
-        targetHrMin: s.targetHrMin,
-        targetHrMax: s.targetHrMax,
-        targetPaceMinPerKm: s.targetPaceMinPerKm,
-        intervalsJson: s.intervalsJson,
-        status: "planned",
-      })
-      sessionsCreated++
+    if (plan.sessions.length > 0) {
+      // Batch all sessions for this day in one round-trip instead of N sequential inserts.
+      await db.insert(plannedSessions).values(
+        plan.sessions.map((s) => ({
+          plannedDayId: dayId,
+          userId,
+          planVersionId,
+          sessionKind: s.sessionKind,
+          customType: s.customType,
+          label: s.label,
+          prescription: s.prescription,
+          isRunSession: s.isRunSession,
+          isStrengthSession: s.isStrengthSession,
+          sequenceInDay: s.sequenceInDay,
+          targetDistanceM: s.targetDistanceM,
+          targetDurationSecs: s.targetDurationSecs,
+          targetHrMin: s.targetHrMin,
+          targetHrMax: s.targetHrMax,
+          targetPaceMinPerKm: s.targetPaceMinPerKm,
+          intervalsJson: s.intervalsJson,
+          status: "planned" as const,
+        }))
+      )
+      sessionsCreated += plan.sessions.length
     }
   }
 
