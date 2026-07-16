@@ -17,7 +17,6 @@ interface WorkoutRow {
   hrDriftBpm: number | null
   perceivedEffort: number | null
   sessionKindOverride: string | null
-  observedSessionKind: string | null
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -30,7 +29,7 @@ const KIND_LABELS: Record<string, string> = {
 }
 
 function sessionLabel(log: WorkoutRow): string {
-  const kind = log.sessionKindOverride ?? log.observedSessionKind
+  const kind = log.sessionKindOverride
   if (kind && KIND_LABELS[kind]) return KIND_LABELS[kind]
   const sport = log.sport ?? "activity"
   return sport.charAt(0).toUpperCase() + sport.slice(1)

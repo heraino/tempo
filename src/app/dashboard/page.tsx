@@ -55,7 +55,6 @@ export default async function DashboardPage() {
         hrDriftBpm: workoutLogs.hrDriftBpm,
         perceivedEffort: workoutLogs.perceivedEffort,
         sessionKindOverride: workoutLogs.sessionKindOverride,
-        observedSessionKind: workoutLogs.observedSessionKind,
       })
       .from(workoutLogs)
       .where(eq(workoutLogs.userId, userId))

@@ -24,11 +24,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // sets per-deployment automatically, when they don't match.
       sendVerificationRequest: async ({ identifier: to, url, provider }) => {
         let finalUrl = url
-        // VERCEL_BRANCH_URL is the stable branch alias (e.g. tempo-git-dev-…vercel.app)
-        // and is preferred over VERCEL_URL (unique per-deploy hash URL).
-        // Neither is set on production, so AUTH_URL keeps the production origin intact.
-        const vercelHost =
-          process.env.VERCEL_BRANCH_URL ?? process.env.VERCEL_URL
+        // On preview deployments, AUTH_URL points to production so magic links
+        // land on the wrong domain. Rewrite to VERCEL_BRANCH_URL (stable per branch)
+        // or VERCEL_URL (unique per deploy) instead.
+        // Skip on production (VERCEL_ENV==="production") — AUTH_URL is already correct there.
+        const vercelHost = process.env.VERCEL_ENV !== "production"
+          ? (process.env.VERCEL_BRANCH_URL ?? process.env.VERCEL_URL)
+          : null
         if (vercelHost) {
           const expectedOrigin = `https://${vercelHost}`
           const parsed = new URL(url)
