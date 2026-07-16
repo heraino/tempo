@@ -16,6 +16,24 @@ interface WorkoutRow {
   avgHr: number | null
   hrDriftBpm: number | null
   perceivedEffort: number | null
+  sessionKindOverride: string | null
+  observedSessionKind: string | null
+}
+
+const KIND_LABELS: Record<string, string> = {
+  easy: "Easy run",
+  long: "Long run",
+  tempo: "Tempo run",
+  threshold: "Threshold",
+  recovery: "Recovery run",
+  other: "Run",
+}
+
+function sessionLabel(log: WorkoutRow): string {
+  const kind = log.sessionKindOverride ?? log.observedSessionKind
+  if (kind && KIND_LABELS[kind]) return KIND_LABELS[kind]
+  const sport = log.sport ?? "activity"
+  return sport.charAt(0).toUpperCase() + sport.slice(1)
 }
 
 export function RecentWorkoutsCard({ logs }: { logs: WorkoutRow[] }) {
@@ -56,9 +74,7 @@ export function RecentWorkoutsCard({ logs }: { logs: WorkoutRow[] }) {
   return (
     <ul className="space-y-0 divide-y divide-gray-50">
       {logs.map((log) => {
-        const sport = log.sport
-          ? log.sport.charAt(0).toUpperCase() + log.sport.slice(1)
-          : "Activity"
+        const sport = sessionLabel(log)
         const isDeleting = deletingId === log.id
         const isConfirming = confirmId === log.id
         const speedMps = resolveSpeedMps(log.avgSpeedMps, log.totalDistanceM, log.totalTimerSecs)
