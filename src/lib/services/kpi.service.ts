@@ -18,19 +18,16 @@ export async function getKpiSnapshot(userId: string): Promise<KpiSnapshot> {
       hrDriftBpm: workoutLogs.hrDriftBpm,
       avgCadence: workoutLogs.avgCadence,
       observedSessionKind: workoutLogs.observedSessionKind,
-      sessionKindOverride: workoutLogs.sessionKindOverride,
     })
     .from(workoutLogs)
     .where(eq(workoutLogs.userId, userId))
     .orderBy(desc(workoutLogs.startTime))
     .limit(30)
 
-  // Apply in-memory classification for workouts uploaded before the backfill.
-  // Priority: stored override → stored observed → heuristic.
+  // Apply in-memory classification for workouts with no stored observedSessionKind.
   const enriched = rows.map((w) => ({
     ...w,
     observedSessionKind:
-      w.sessionKindOverride ??
       w.observedSessionKind ??
       heuristicClassify({
         totalTimerSecs: w.totalTimerSecs,

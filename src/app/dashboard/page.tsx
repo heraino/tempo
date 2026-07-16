@@ -44,12 +44,22 @@ export default async function DashboardPage() {
   const [scheduleResult, recentLogs, kpis] = await Promise.all([
     getScheduleRange(userId, todayStr, 8),
     db
-      .select()
+      .select({
+        id: workoutLogs.id,
+        sport: workoutLogs.sport,
+        startTime: workoutLogs.startTime,
+        totalDistanceM: workoutLogs.totalDistanceM,
+        totalTimerSecs: workoutLogs.totalTimerSecs,
+        avgSpeedMps: workoutLogs.avgSpeedMps,
+        avgHr: workoutLogs.avgHr,
+        hrDriftBpm: workoutLogs.hrDriftBpm,
+        perceivedEffort: workoutLogs.perceivedEffort,
+      })
       .from(workoutLogs)
       .where(eq(workoutLogs.userId, userId))
       .orderBy(desc(workoutLogs.startTime))
       .limit(10),
-    getKpiSnapshot(userId),
+    getKpiSnapshot(userId).catch(() => null),
   ])
 
   if (!scheduleResult) redirect("/onboarding")
@@ -170,7 +180,7 @@ export default async function DashboardPage() {
         </section>
 
         {/* Performance KPIs */}
-        {recentLogs.length > 0 && (
+        {recentLogs.length > 0 && kpis != null && (
           <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <h2 className="text-lg font-bold text-gray-900 mb-4">Performance</h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
