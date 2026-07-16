@@ -10,6 +10,8 @@ export interface WorkoutForKpi {
   hrDriftBpm: number | null
   avgCadence: number | null
   observedSessionKind: string | null
+  qualitySpeedMps?: number | null
+  qualityCadence?: number | null
 }
 
 export interface KpiSnapshot {
@@ -64,25 +66,18 @@ export function computeKpiSnapshot(
     if (spd) aerobicEfficiency = (spd * 60) / lastEasy.avgHr
   }
 
-  let thresholdSpeedMps: number | null = null
-  if (lastThreshold && (lastThreshold.totalTimerSecs ?? 0) >= 15 * 60) {
-    thresholdSpeedMps = resolveSpeedMps(
-      lastThreshold.avgSpeedMps,
-      lastThreshold.totalDistanceM,
-      lastThreshold.totalTimerSecs,
-    )
-  }
+  // Prefer quality-lap speed (excludes warmup/cooldown) over whole-workout average
+  const thresholdSpeedMps =
+    lastThreshold?.qualitySpeedMps ??
+    ((lastThreshold?.totalTimerSecs ?? 0) >= 15 * 60
+      ? resolveSpeedMps(lastThreshold?.avgSpeedMps ?? null, lastThreshold?.totalDistanceM ?? null, lastThreshold?.totalTimerSecs ?? null)
+      : null)
 
-  let thresholdSpeedMpsPrev: number | null = null
-  if (prevThreshold && (prevThreshold.totalTimerSecs ?? 0) >= 15 * 60) {
-    thresholdSpeedMpsPrev = resolveSpeedMps(
-      prevThreshold.avgSpeedMps,
-      prevThreshold.totalDistanceM,
-      prevThreshold.totalTimerSecs,
-    )
-  }
-
-  const cadenceTempoPrev = prevTempo?.avgCadence ?? null
+  const thresholdSpeedMpsPrev =
+    prevThreshold?.qualitySpeedMps ??
+    ((prevThreshold?.totalTimerSecs ?? 0) >= 15 * 60
+      ? resolveSpeedMps(prevThreshold?.avgSpeedMps ?? null, prevThreshold?.totalDistanceM ?? null, prevThreshold?.totalTimerSecs ?? null)
+      : null)
 
   return {
     weeklyMileage: weeklyM > 0 ? weeklyM : null,
@@ -93,7 +88,7 @@ export function computeKpiSnapshot(
     thresholdSpeedMpsPrev,
     longRunDistanceM: lastLong?.totalDistanceM ?? null,
     cadenceEasy: lastEasy?.avgCadence ?? null,
-    cadenceTempo: lastTempo?.avgCadence ?? null,
-    cadenceTempoPrev,
+    cadenceTempo: lastTempo?.qualityCadence ?? lastTempo?.avgCadence ?? null,
+    cadenceTempoPrev: prevTempo?.qualityCadence ?? prevTempo?.avgCadence ?? null,
   }
 }

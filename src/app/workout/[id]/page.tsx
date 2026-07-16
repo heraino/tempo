@@ -37,11 +37,12 @@ function StatGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-3 gap-4">{children}</div>
 }
 
-function getQualityLaps(laps: Record<string, unknown>[], kind: string): Record<string, unknown>[] {
-  const excluded = new Set(["warmup", "cooldown", "rest", "recovery"])
+const EXCLUDED_INTENSITIES = new Set(["warmup", "cooldown", "rest", "recovery"])
+
+function getActiveLaps(laps: Record<string, unknown>[], kind: string | null): Record<string, unknown>[] {
   return laps.filter((lap) => {
     const intensity = lap.intensity as string | undefined
-    if (intensity && excluded.has(intensity)) return false
+    if (intensity && EXCLUDED_INTENSITIES.has(intensity)) return false
     const spd = (lap.avg_speed ?? lap.enhanced_avg_speed) as number | undefined
     if (spd != null && spd < 1.85) return false
     const hr = lap.avg_heart_rate as number | undefined
@@ -51,19 +52,50 @@ function getQualityLaps(laps: Record<string, unknown>[], kind: string): Record<s
   })
 }
 
-function computeQualityStats(qualityLaps: Record<string, unknown>[]) {
-  let totalDist = 0, totalTime = 0, cadSum = 0, cadCount = 0
-  for (const lap of qualityLaps) {
-    totalDist += (lap.total_distance as number | undefined) ?? 0
-    totalTime += ((lap.total_timer_time ?? lap.total_elapsed_time) as number | undefined) ?? 0
+function computeActiveLapStats(activeLaps: Record<string, unknown>[]) {
+  let totalDist = 0, totalTime = 0
+  let cadSum = 0, cadCount = 0
+  let strideSum = 0, strideCount = 0
+  let vertOscSum = 0, vertOscCount = 0
+  let stanceSum = 0, stanceCount = 0
+  let stancePctSum = 0, stancePctCount = 0
+  let vertRatioSum = 0, vertRatioCount = 0
+
+  for (const lap of activeLaps) {
+    const dist = (lap.total_distance as number | undefined) ?? 0
+    const time = ((lap.total_timer_time ?? lap.total_elapsed_time) as number | undefined) ?? 0
+    totalDist += dist
+    totalTime += time
+
     const cad = (lap.avg_running_cadence ?? lap.avg_cadence) as number | undefined
     if (cad) { cadSum += cad; cadCount++ }
+
+    const stride = (lap.avg_stride_length) as number | undefined
+    if (stride) { strideSum += stride; strideCount++ }
+
+    const vertOsc = (lap.avg_vertical_oscillation) as number | undefined
+    if (vertOsc) { vertOscSum += vertOsc; vertOscCount++ }
+
+    const stance = (lap.avg_stance_time) as number | undefined
+    if (stance) { stanceSum += stance; stanceCount++ }
+
+    const stancePct = (lap.avg_stance_time_percent ?? lap.avg_stance_time_pct) as number | undefined
+    if (stancePct) { stancePctSum += stancePct; stancePctCount++ }
+
+    const vertRatio = (lap.avg_vertical_ratio) as number | undefined
+    if (vertRatio) { vertRatioSum += vertRatio; vertRatioCount++ }
   }
+
   return {
     avgSpeedMps: totalTime > 0 ? totalDist / totalTime : null,
     avgCadenceSingleFoot: cadCount > 0 ? Math.round(cadSum / cadCount) : null,
     totalDistanceM: totalDist,
     totalTimeSecs: totalTime,
+    avgStrideLengthM: strideCount > 0 ? strideSum / strideCount : null,
+    avgVerticalOscillationMm: vertOscCount > 0 ? vertOscSum / vertOscCount : null,
+    avgStanceTimeMs: stanceCount > 0 ? stanceSum / stanceCount : null,
+    avgStanceTimePct: stancePctCount > 0 ? stancePctSum / stancePctCount : null,
+    avgVerticalRatio: vertRatioCount > 0 ? vertRatioSum / vertRatioCount : null,
   }
 }
 
@@ -128,10 +160,17 @@ export default async function WorkoutDetailPage({
 
   const { log, fitFile } = row
   const startDate = new Date(log.startTime)
-  const sportLabel = log.sport
-    ? log.sport.charAt(0).toUpperCase() + log.sport.slice(1)
+
+  // Use "Overall Run" for generic running workouts instead of "Running · generic"
+  const rawSport = log.sport ?? ""
+  const rawSubSport = log.subSport ?? ""
+  const isGenericRun = rawSport === "running" && (!rawSubSport || rawSubSport === "generic" || rawSubSport === rawSport)
+  const sportLabel = isGenericRun
+    ? "Overall Run"
+    : rawSport
+    ? rawSport.charAt(0).toUpperCase() + rawSport.slice(1)
     : "Activity"
-  const subLabel = log.subSport && log.subSport !== log.sport ? log.subSport : null
+  const subLabel = !isGenericRun && rawSubSport && rawSubSport !== rawSport ? rawSubSport : null
 
   const hasRunWalk =
     log.runOnlyDistanceM != null || log.walkDurationSecs != null
@@ -140,8 +179,12 @@ export default async function WorkoutDetailPage({
 
   const kind = (log.sessionKindOverride ?? log.observedSessionKind) as string | null
   const isQualityRun = kind === "threshold" || kind === "tempo"
-  const qualityLaps = isQualityRun ? getQualityLaps(laps, kind!) : []
-  const qualityStats = qualityLaps.length > 0 ? computeQualityStats(qualityLaps) : null
+
+  // Active laps: warmup/cooldown/walk filtered out. For threshold/tempo, also filter by HR.
+  const activeLaps = laps.length > 0 ? getActiveLaps(laps, isQualityRun ? kind : null) : []
+  const activeStats = activeLaps.length > 0 ? computeActiveLapStats(activeLaps) : null
+  // Alias for the "Threshold work" / "Tempo work" section (only for quality runs)
+  const qualityStats = isQualityRun ? activeStats : null
 
   // Planned session linked via session_completion (may be null if uploaded without plan link)
   const plannedSession = plannedSessionRows[0]?.session ?? null
@@ -440,7 +483,7 @@ export default async function WorkoutDetailPage({
               )}
             </StatGrid>
             <p className="text-[10px] text-gray-400 mt-3">
-              {qualityLaps.length} quality {qualityLaps.length === 1 ? "lap" : "laps"} · warm-up, cool-down &amp; walk excluded
+              {activeLaps.length} quality {activeLaps.length === 1 ? "lap" : "laps"} · warm-up, cool-down &amp; walk excluded
             </p>
           </Section>
         )}
@@ -451,6 +494,20 @@ export default async function WorkoutDetailPage({
             <Stat label="Avg pace" value={fmtPace(avgSpeedMps)} />
             <Stat label="Best pace" value={fmtPace(log.maxSpeedMps)} />
             <Stat label="Avg cadence" value={log.avgCadence ? `${log.avgCadence * 2} spm` : "—"} sub={log.maxCadence ? `max ${log.maxCadence * 2}` : undefined} />
+            {qualityStats?.avgSpeedMps != null && (
+              <Stat
+                label={kind === "threshold" ? "Threshold pace" : "Tempo pace"}
+                value={fmtPace(qualityStats.avgSpeedMps)}
+                sub="Quality laps"
+              />
+            )}
+            {qualityStats?.avgCadenceSingleFoot != null && (
+              <Stat
+                label={kind === "threshold" ? "Threshold cadence" : "Tempo cadence"}
+                value={`${qualityStats.avgCadenceSingleFoot * 2} spm`}
+                sub="Quality laps"
+              />
+            )}
           </StatGrid>
         </Section>
 
@@ -466,6 +523,30 @@ export default async function WorkoutDetailPage({
               <Stat label="Stance %" value={fmtNum(log.avgStanceTimePct, 1, "%")} />
               <Stat label="Vert ratio" value={fmtNum(log.avgVerticalRatio, 1, "%")} />
             </StatGrid>
+            {activeStats && (activeStats.avgStrideLengthM != null || activeStats.avgVerticalOscillationMm != null || activeStats.avgStanceTimeMs != null) && (
+              <>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mt-5 mb-3">
+                  Running only · warm-up, cool-down &amp; walk excluded
+                </p>
+                <StatGrid>
+                  {activeStats.avgStrideLengthM != null && (
+                    <Stat label="Stride" value={fmtNum(activeStats.avgStrideLengthM, 2, "m")} />
+                  )}
+                  {activeStats.avgVerticalOscillationMm != null && (
+                    <Stat label="Vert osc." value={fmtNum(activeStats.avgVerticalOscillationMm, 1, "mm")} />
+                  )}
+                  {activeStats.avgStanceTimeMs != null && (
+                    <Stat label="Stance time" value={fmtNum(activeStats.avgStanceTimeMs, 0, "ms")} />
+                  )}
+                  {activeStats.avgStanceTimePct != null && (
+                    <Stat label="Stance %" value={fmtNum(activeStats.avgStanceTimePct, 1, "%")} />
+                  )}
+                  {activeStats.avgVerticalRatio != null && (
+                    <Stat label="Vert ratio" value={fmtNum(activeStats.avgVerticalRatio, 1, "%")} />
+                  )}
+                </StatGrid>
+              </>
+            )}
           </Section>
         )}
 
