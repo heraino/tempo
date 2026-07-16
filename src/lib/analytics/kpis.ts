@@ -25,6 +25,7 @@ export interface KpiSnapshot {
   cadenceEasy: number | null
   cadenceTempo: number | null
   cadenceTempoPrev: number | null
+  recentWorkoutCount: number
 }
 
 export function computeKpiSnapshot(
@@ -90,5 +91,6 @@ export function computeKpiSnapshot(
     cadenceEasy: lastEasy?.avgCadence ?? null,
     cadenceTempo: lastTempo?.qualityCadence ?? lastTempo?.avgCadence ?? null,
     cadenceTempoPrev: prevTempo?.qualityCadence ?? prevTempo?.avgCadence ?? null,
+    recentWorkoutCount: workouts.length,
   }
 }

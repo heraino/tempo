@@ -2,14 +2,15 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
-import { workoutLogs } from "@/lib/db/schema"
-import { eq, desc } from "drizzle-orm"
+import { workoutLogs, coachingAnalyses } from "@/lib/db/schema"
+import { eq, desc, and } from "drizzle-orm"
 import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.service"
 import { resolveLocalDate } from "@/lib/plan/localDate"
 import { RecentWorkoutsCard } from "@/components/RecentWorkoutsCard"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
 import { computeReadiness } from "@/lib/analytics/readiness"
+import type { NotebookEntry } from "@/app/workout/coach-actions"
 
 function KpiCard({
   label,
@@ -83,7 +84,7 @@ export default async function DashboardPage() {
   const tz = await getAthleteTimezone(userId)
   const todayStr = resolveLocalDate(tz)
 
-  const [scheduleResult, recentLogs, kpis] = await Promise.all([
+  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook] = await Promise.all([
     getScheduleRange(userId, todayStr, 8),
     db
       .select({
@@ -103,6 +104,24 @@ export default async function DashboardPage() {
       .orderBy(desc(workoutLogs.startTime))
       .limit(10),
     getKpiSnapshot(userId).catch(() => null),
+    db
+      .select({ responseParsed: coachingAnalyses.responseParsed, createdAt: coachingAnalyses.createdAt })
+      .from(coachingAnalyses)
+      .where(and(
+        eq(coachingAnalyses.userId, userId),
+        eq(coachingAnalyses.analysisType, "readiness_snapshot"),
+      ))
+      .orderBy(desc(coachingAnalyses.createdAt))
+      .limit(2),
+    db
+      .select({ responseParsed: coachingAnalyses.responseParsed, createdAt: coachingAnalyses.createdAt })
+      .from(coachingAnalyses)
+      .where(and(
+        eq(coachingAnalyses.userId, userId),
+        eq(coachingAnalyses.analysisType, "notebook"),
+      ))
+      .orderBy(desc(coachingAnalyses.createdAt))
+      .limit(1),
   ])
 
   if (!scheduleResult) redirect("/onboarding")
@@ -117,6 +136,31 @@ export default async function DashboardPage() {
 
   const todaySessionSummary = todayDay && !todayDay.isRestDay && todayDay.sessions.length > 0
     ? todayDay.sessions.map((s) => s.label).join(" + ")
+    : null
+
+  // Readiness delta from last two snapshots
+  let readinessDelta: number | null = null
+  let readinessDeltaComponents: Record<string, number> | null = null
+  if (recentSnapshots.length >= 2) {
+    const curr = (recentSnapshots[0].responseParsed as Record<string, unknown> | null)
+    const prev = (recentSnapshots[1].responseParsed as Record<string, unknown> | null)
+    if (curr && prev && typeof curr.total === "number" && typeof prev.total === "number") {
+      readinessDelta = curr.total - prev.total
+      const currComp = curr.components as Record<string, number> | undefined
+      const prevComp = prev.components as Record<string, number> | undefined
+      if (currComp && prevComp) {
+        readinessDeltaComponents = {
+          aerobicEngine: (currComp.aerobicEngine ?? 0) - (prevComp.aerobicEngine ?? 0),
+          threshold: (currComp.threshold ?? 0) - (prevComp.threshold ?? 0),
+          longRun: (currComp.longRun ?? 0) - (prevComp.longRun ?? 0),
+          consistency: (currComp.consistency ?? 0) - (prevComp.consistency ?? 0),
+        }
+      }
+    }
+  }
+
+  const notebook = latestNotebook[0]?.responseParsed
+    ? (latestNotebook[0].responseParsed as NotebookEntry)
     : null
 
   return (
@@ -187,7 +231,6 @@ export default async function DashboardPage() {
                     href={`/plan/${day.date}`}
                     className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded-xl transition-colors"
                   >
-                    {/* Date column */}
                     <div className="w-10 shrink-0 text-center">
                       <p className="text-[11px] font-semibold uppercase text-gray-400 leading-none">
                         {dateObj.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}
@@ -196,8 +239,6 @@ export default async function DashboardPage() {
                         {dateObj.getUTCDate()}
                       </p>
                     </div>
-
-                    {/* Workout info */}
                     <div className="flex-1 min-w-0 pt-0.5">
                       <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">
                         {weekLabel}
@@ -210,8 +251,6 @@ export default async function DashboardPage() {
                         <p className="text-sm text-gray-300">No sessions</p>
                       )}
                     </div>
-
-                    {/* Chevron */}
                     <svg className="shrink-0 text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M9 18l6-6-6-6" />
                     </svg>
@@ -232,21 +271,56 @@ export default async function DashboardPage() {
             r.components.consistency,
             r.components.economy,
           ]
+
+          const confidenceColor =
+            r.confidenceLabel === "High"    ? "text-green-600 bg-green-50" :
+            r.confidenceLabel === "Moderate" ? "text-amber-600 bg-amber-50" :
+                                               "text-gray-500 bg-gray-100"
+
+          // Explain delta in terms of components
+          let deltaExplain = ""
+          if (readinessDeltaComponents) {
+            const parts: string[] = []
+            const names: Record<string, string> = {
+              aerobicEngine: "aerobic engine",
+              threshold: "threshold",
+              longRun: "long run",
+              consistency: "consistency",
+            }
+            for (const [key, delta] of Object.entries(readinessDeltaComponents)) {
+              if (Math.abs(delta) >= 3) {
+                parts.push(`${delta > 0 ? "+" : ""}${delta} ${names[key] ?? key}`)
+              }
+            }
+            if (parts.length > 0) deltaExplain = parts.join(", ")
+          }
+
           return (
             <>
               {/* Readiness score card */}
               <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                <div className="flex items-start justify-between mb-4">
+                <div className="flex items-start justify-between mb-1">
                   <div>
                     <h2 className="text-lg font-bold text-gray-900">Goal readiness</h2>
                     <p className="text-xs text-gray-400 mt-0.5">Half marathon · 7:20/mi · age 50</p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-3xl font-bold tabular-nums text-gray-900">{r.total}</p>
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">/100</p>
+                  <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                    <p className="text-3xl font-bold tabular-nums text-gray-900">{r.total}<span className="text-sm font-normal text-gray-400">/100</span></p>
+                    <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${confidenceColor}`}>
+                      {r.confidenceLabel} confidence
+                    </span>
                   </div>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-1">
+
+                {/* Delta row */}
+                {readinessDelta != null && Math.abs(readinessDelta) >= 1 && (
+                  <p className={`text-xs mb-3 ${readinessDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
+                    {readinessDelta >= 0 ? `↑${readinessDelta}` : `↓${Math.abs(readinessDelta)}`} since last analysis
+                    {deltaExplain ? ` · ${deltaExplain}` : ""}
+                  </p>
+                )}
+
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-1 mt-3">
                   <div className="h-2 rounded-full bg-orange-500 transition-all" style={{ width: `${r.total}%` }} />
                 </div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-4">{r.milestoneLabel}</p>
@@ -261,6 +335,11 @@ export default async function DashboardPage() {
                       <p className="w-28 text-[10px] text-gray-400 truncate hidden sm:block">{c.detail}</p>
                     </div>
                   ))}
+                </div>
+                <div className="mt-4 pt-3 border-t border-gray-50">
+                  <Link href="/performance" className="text-xs font-medium text-orange-500 hover:underline">
+                    View full performance breakdown →
+                  </Link>
                 </div>
               </section>
 
@@ -344,6 +423,63 @@ export default async function DashboardPage() {
             </>
           )
         })()}
+
+        {/* Coach's Notebook */}
+        {notebook && (
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-center gap-2 mb-3">
+              <h2 className="text-lg font-bold text-gray-900">Coach&apos;s Notebook</h2>
+              <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${
+                notebook.trajectory === "improving"   ? "bg-green-50 text-green-700" :
+                notebook.trajectory === "plateauing"  ? "bg-amber-50 text-amber-700" :
+                notebook.trajectory === "declining"   ? "bg-red-50 text-red-600" :
+                                                        "bg-gray-100 text-gray-500"
+              }`}>
+                {notebook.trajectory === "improving"         ? "Improving" :
+                 notebook.trajectory === "plateauing"        ? "Plateauing" :
+                 notebook.trajectory === "declining"         ? "Declining" :
+                 "Insufficient data"}
+              </span>
+            </div>
+            <p className="text-sm text-gray-700 leading-relaxed mb-4">{notebook.summary}</p>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              {notebook.strengths.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600 mb-1.5">Strengths</p>
+                  <ul className="space-y-1">
+                    {notebook.strengths.map((s, i) => (
+                      <li key={i} className="flex gap-1.5 text-xs text-gray-600">
+                        <span className="text-green-500 shrink-0 mt-0.5">↑</span>
+                        {s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {notebook.limiters.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 mb-1.5">Limiters</p>
+                  <ul className="space-y-1">
+                    {notebook.limiters.map((l, i) => (
+                      <li key={i} className="flex gap-1.5 text-xs text-gray-600">
+                        <span className="text-amber-500 shrink-0 mt-0.5">·</span>
+                        {l}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {notebook.nextUnlock && (
+              <div className="mt-4 pt-3 border-t border-gray-50">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">Next unlock</p>
+                <p className="text-xs text-gray-600">{notebook.nextUnlock}</p>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Performance KPIs */}
         {recentLogs.length > 0 && kpis != null && (() => {

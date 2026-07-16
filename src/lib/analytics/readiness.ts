@@ -16,18 +16,20 @@ export interface MilestoneTarget {
 }
 
 export interface MilestoneStage {
-  id: "current" | "m1" | "m2" | "advanced" | "goal"
+  id: "current" | "m1" | "m2" | "m3" | "advanced" | "goal"
   label: string
   description: string
-  completed: boolean   // all targets met
-  active: boolean      // the stage the athlete is currently working toward
+  completed: boolean
+  active: boolean
   targets: MilestoneTarget[]
 }
 
 export interface ReadinessResult {
   total: number
-  milestone: "pre-m1" | "m1" | "m2" | "advanced"
+  milestone: "pre-m1" | "m1" | "m2" | "m3" | "advanced"
   milestoneLabel: string
+  confidence: number
+  confidenceLabel: "Low" | "Moderate" | "High"
   components: {
     aerobicEngine: ReadinessComponent
     threshold: ReadinessComponent
@@ -42,17 +44,20 @@ export interface ReadinessResult {
 const E_FLOOR = 1609.344 / (11.5  * 60)   // 11:30/mi — score floor
 const E_M1    = 1609.344 / (10.75 * 60)   // 10:45/mi
 const E_M2    = 1609.344 / (10.0  * 60)   // 10:00/mi
+const E_M3    = 1609.344 / (9.5   * 60)   //  9:30/mi
 const E_ADV   = 1609.344 / (8.75  * 60)   //  8:45/mi — score ceiling
 
 const T_FLOOR = 1609.344 / (9.5   * 60)   //  9:30/mi
 const T_M1    = 1609.344 / (8.5   * 60)   //  8:30/mi
 const T_M2    = 1609.344 / (8.0   * 60)   //  8:00/mi
+const T_M3    = 1609.344 / (7.583 * 60)   //  7:35/mi (midpoint 7:30–7:40)
 const T_ADV   = 1609.344 / (7.167 * 60)   //  7:10/mi
 
 const LR_FLOOR = 5  * 1609.344
 const LR_M1    = 8  * 1609.344
 const LR_M2    = 10 * 1609.344
-const LR_ADV   = 11 * 1609.344
+const LR_M3    = 12 * 1609.344
+const LR_ADV   = 14 * 1609.344
 
 const CON_TARGET = 25 * 1609.344
 
@@ -89,6 +94,20 @@ function distTarget(
   }
 }
 
+function computeConfidence(kpis: KpiSnapshot): { score: number; label: "Low" | "Moderate" | "High" } {
+  let pts = 0
+  if (kpis.easyPaceAt140Mps != null) pts += 25
+  if (kpis.thresholdSpeedMps != null) pts += 20
+  if (kpis.longRunDistanceM != null)  pts += 20
+  if (kpis.weeklyMileage != null)     pts += 15
+  if (kpis.cadenceEasy != null || kpis.cadenceTempo != null) pts += 10
+  // Workout volume bonus: up to 10 points for ≥10 recent workouts
+  pts += Math.min(kpis.recentWorkoutCount, 10)
+  const score = Math.min(100, pts)
+  const label: "Low" | "Moderate" | "High" = score >= 67 ? "High" : score >= 34 ? "Moderate" : "Low"
+  return { score, label }
+}
+
 export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
   const ae  = kpis.easyPaceAt140Mps   ? lerp(kpis.easyPaceAt140Mps,   E_FLOOR, E_ADV)   : 0
   const th  = kpis.thresholdSpeedMps  ? lerp(kpis.thresholdSpeedMps,  T_FLOOR, T_ADV)   : 0
@@ -103,6 +122,8 @@ export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
 
   const total = Math.round(ae * 0.35 + th * 0.25 + lr * 0.20 + con * 0.15 + eco * 0.05)
 
+  const { score: confidence, label: confidenceLabel } = computeConfidence(kpis)
+
   // ── Milestone gates ──────────────────────────────────────────────────────────
   const passM1 = (kpis.easyPaceAt140Mps ?? 0) >= E_M1 &&
                  (kpis.thresholdSpeedMps ?? 0) >= T_M1 &&
@@ -111,13 +132,17 @@ export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
                  (kpis.easyPaceAt140Mps ?? 0) >= E_M2 &&
                  (kpis.thresholdSpeedMps ?? 0) >= T_M2 &&
                  (kpis.longRunDistanceM  ?? 0) >= LR_M2
-  const passAdv = passM2 &&
+  const passM3 = passM2 &&
+                 (kpis.easyPaceAt140Mps ?? 0) >= E_M3 &&
+                 (kpis.thresholdSpeedMps ?? 0) >= T_M3 &&
+                 (kpis.longRunDistanceM  ?? 0) >= LR_M3
+  const passAdv = passM3 &&
                   (kpis.easyPaceAt140Mps ?? 0) >= E_ADV &&
                   (kpis.thresholdSpeedMps ?? 0) >= T_ADV &&
                   (kpis.longRunDistanceM  ?? 0) >= LR_ADV
 
   const milestone: ReadinessResult["milestone"] =
-    passAdv ? "advanced" : passM2 ? "m2" : passM1 ? "m1" : "pre-m1"
+    passAdv ? "advanced" : passM3 ? "m3" : passM2 ? "m2" : passM1 ? "m1" : "pre-m1"
 
   // ── Build stage list ─────────────────────────────────────────────────────────
 
@@ -193,16 +218,35 @@ export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
     ],
   }
 
+  const m3Stage: MilestoneStage = {
+    id: "m3",
+    label: "Milestone 3",
+    description: "Race-specific fitness emerging",
+    completed: passM3,
+    active: passM2 && !passM3,
+    targets: [
+      speedTarget(kpis.easyPaceAt140Mps, E_M3, "<9:30/mi",      "Easy pace @140 bpm"),
+      speedTarget(kpis.thresholdSpeedMps, T_M3, "7:30–7:40/mi", "Threshold pace"),
+      distTarget(kpis.longRunDistanceM, LR_M3, "12–13 mi controlled"),
+      {
+        metric: "Weekly mileage",
+        current: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) + "/wk" : "—",
+        target: "25–30 mi weeks",
+        achieved: (kpis.weeklyMileage ?? 0) >= 25 * 1609.344,
+      },
+    ],
+  }
+
   const advStage: MilestoneStage = {
     id: "advanced",
     label: "Race-ready",
     description: "7:20/mi half marathon plausible",
     completed: passAdv,
-    active: passM2 && !passAdv,
+    active: passM3 && !passAdv,
     targets: [
       speedTarget(kpis.easyPaceAt140Mps, E_ADV, "8:45–9:30/mi",  "Easy pace @140 bpm"),
-      speedTarget(kpis.thresholdSpeedMps, T_ADV, "6:55–7:10/mi",  "Threshold pace"),
-      distTarget(kpis.longRunDistanceM, LR_ADV, "11–14 mi controlled"),
+      speedTarget(kpis.thresholdSpeedMps, T_ADV, "6:55–7:10/mi", "Threshold pace"),
+      distTarget(kpis.longRunDistanceM, LR_ADV, "14 mi controlled"),
       {
         metric: "Race-specific work",
         current: "—",
@@ -228,8 +272,11 @@ export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
       "pre-m1":   "Building base",
       "m1":       "Milestone 1 reached",
       "m2":       "Milestone 2 reached",
+      "m3":       "Milestone 3 reached",
       "advanced": "Advanced",
     }[milestone],
+    confidence,
+    confidenceLabel,
     components: {
       aerobicEngine: {
         score: Math.round(ae), weight: 35, label: "Aerobic engine",
@@ -252,6 +299,6 @@ export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
         detail: cadSpm ? `${cadSpm} spm` : "No cadence data",
       },
     },
-    milestoneStages: [currentStage, m1Stage, m2Stage, advStage, goalStage],
+    milestoneStages: [currentStage, m1Stage, m2Stage, m3Stage, advStage, goalStage],
   }
 }

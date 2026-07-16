@@ -6,6 +6,7 @@ import { workoutLogs, coachingAnalyses, athleteContexts } from "@/lib/db/schema"
 import { and, eq, desc } from "drizzle-orm"
 import { nebiusChat } from "@/lib/ai/nebius"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
+import { computeReadiness } from "@/lib/analytics/readiness"
 import { fmtPace, fmtDistance, fmtDuration } from "@/lib/fmt"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
@@ -34,8 +35,142 @@ const CoachOutputSchema = z.object({
 
 export type CoachOutput = z.infer<typeof CoachOutputSchema>
 
+const NotebookSchema = z.object({
+  summary: z.string(),
+  trajectory: z.enum(["improving", "plateauing", "declining", "insufficient_data"]),
+  strengths: z.array(z.string()),
+  limiters: z.array(z.string()),
+  nextUnlock: z.string(),
+})
+
+export type NotebookEntry = z.infer<typeof NotebookSchema>
+
 function mpsToMinPerMile(mps: number | null | undefined): string {
   return fmtPace(mps ?? null)
+}
+
+async function generateAndSaveNotebook(
+  userId: string,
+  workoutId: string,
+  kpis: Awaited<ReturnType<typeof getKpiSnapshot>>,
+): Promise<void> {
+  const readiness = computeReadiness(kpis)
+
+  // Fetch last 5 workout analyses for context
+  const recentAnalyses = await db
+    .select({
+      headline: coachingAnalyses.headline,
+      grade: coachingAnalyses.grade,
+      createdAt: coachingAnalyses.createdAt,
+    })
+    .from(coachingAnalyses)
+    .where(and(
+      eq(coachingAnalyses.userId, userId),
+      eq(coachingAnalyses.analysisType, "workout"),
+    ))
+    .orderBy(desc(coachingAnalyses.createdAt))
+    .limit(5)
+
+  const contextSnapshot = {
+    readiness: {
+      total: readiness.total,
+      milestone: readiness.milestone,
+      milestoneLabel: readiness.milestoneLabel,
+      confidence: readiness.confidence,
+      confidenceLabel: readiness.confidenceLabel,
+      components: {
+        aerobicEngine: { score: readiness.components.aerobicEngine.score, detail: readiness.components.aerobicEngine.detail },
+        threshold: { score: readiness.components.threshold.score, detail: readiness.components.threshold.detail },
+        longRun: { score: readiness.components.longRun.score, detail: readiness.components.longRun.detail },
+        consistency: { score: readiness.components.consistency.score, detail: readiness.components.consistency.detail },
+        economy: { score: readiness.components.economy.score, detail: readiness.components.economy.detail },
+      },
+    },
+    kpis: {
+      easyPaceAt140: mpsToMinPerMile(kpis.easyPaceAt140Mps),
+      thresholdPace: mpsToMinPerMile(kpis.thresholdSpeedMps),
+      lastLongRun: kpis.longRunDistanceM ? fmtDistance(kpis.longRunDistanceM) : null,
+      weeklyMileage: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) : null,
+      cadenceEasy: kpis.cadenceEasy ? kpis.cadenceEasy * 2 : null,
+      cadenceTempo: kpis.cadenceTempo ? kpis.cadenceTempo * 2 : null,
+      recentWorkoutCount: kpis.recentWorkoutCount,
+    },
+    recentWorkouts: recentAnalyses.map((a) => ({
+      headline: a.headline,
+      grade: a.grade,
+    })),
+    goal: {
+      event: "half marathon",
+      targetPacePerMile: "7:20/mi",
+      targetAge: 50,
+    },
+  }
+
+  const systemPrompt = `You are an experienced running coach keeping a longitudinal notebook on an athlete's trajectory toward a half marathon at 7:20/mile pace by age 50. You receive structured data about their current fitness and recent workout history.
+
+Write a brief notebook entry that observes patterns and trends — not just today's workout. Think like a coach who has been following this athlete for weeks.
+
+Rules:
+- Be specific; cite actual paces, distances, or trends from the data
+- Never diagnose injury or prescribe medical treatment
+- Keep language direct and actionable
+- trajectory must be one of: "improving", "plateauing", "declining", "insufficient_data"
+
+Respond with ONLY a valid JSON object:
+{
+  "summary": "2-3 sentence overall trajectory assessment",
+  "trajectory": "improving" | "plateauing" | "declining" | "insufficient_data",
+  "strengths": ["up to 3 specific strengths observed from data"],
+  "limiters": ["up to 3 specific limiters holding back progress"],
+  "nextUnlock": "one sentence: what physiological or training adaptation is most likely to unlock next, and what will drive it"
+}`
+
+  const userPrompt = `Athlete data:\n\n${JSON.stringify(contextSnapshot, null, 2)}`
+
+  let rawResponse: string
+  try {
+    rawResponse = await nebiusChat(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      { temperature: 0.2, maxTokens: 800 },
+    )
+  } catch {
+    return // fail silently — notebook is non-critical
+  }
+
+  const jsonMatch = rawResponse.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) return
+
+  let parsed: NotebookEntry
+  try {
+    parsed = NotebookSchema.parse(JSON.parse(jsonMatch[0]))
+  } catch {
+    return
+  }
+
+  await db.insert(coachingAnalyses).values({
+    id: crypto.randomUUID(),
+    userId,
+    workoutLogId: workoutId,
+    analysisType: "notebook",
+    provider: "nebius",
+    model: process.env.NEBIUS_MODEL ?? "meta-llama/Meta-Llama-3.1-70B-Instruct",
+    analyticsVersion: ANALYTICS_VERSION,
+    promptText: userPrompt,
+    contextSnapshot,
+    responseRaw: rawResponse,
+    responseParsed: parsed,
+    headline: parsed.summary.slice(0, 200),
+    decision: parsed.nextUnlock,
+    grade: null,
+    flags: {
+      trajectory: parsed.trajectory,
+      strengths: parsed.strengths,
+      limiters: parsed.limiters,
+    },
+  })
 }
 
 export async function generateCoachingAnalysis(workoutId: string): Promise<{
@@ -215,7 +350,7 @@ Respond with ONLY a valid JSON object, no markdown, no prose outside the JSON. U
     return { ok: false, error: "AI response did not match expected schema" }
   }
 
-  // Store in DB
+  // Store workout analysis
   await db.insert(coachingAnalyses).values({
     id: crypto.randomUUID(),
     userId,
@@ -238,6 +373,43 @@ Respond with ONLY a valid JSON object, no markdown, no prose outside the JSON. U
     },
   })
 
+  // Save readiness snapshot (deterministic, no LLM)
+  if (kpis) {
+    const readiness = computeReadiness(kpis)
+    await db.insert(coachingAnalyses).values({
+      id: crypto.randomUUID(),
+      userId,
+      workoutLogId: workoutId,
+      analysisType: "readiness_snapshot",
+      provider: "deterministic",
+      model: "v1",
+      analyticsVersion: ANALYTICS_VERSION,
+      promptText: null,
+      contextSnapshot: kpis as unknown as Record<string, unknown>,
+      responseRaw: null,
+      responseParsed: {
+        total: readiness.total,
+        milestone: readiness.milestone,
+        confidence: readiness.confidence,
+        components: {
+          aerobicEngine: readiness.components.aerobicEngine.score,
+          threshold: readiness.components.threshold.score,
+          longRun: readiness.components.longRun.score,
+          consistency: readiness.components.consistency.score,
+          economy: readiness.components.economy.score,
+        },
+      },
+      headline: `Readiness ${readiness.total}/100 · ${readiness.milestoneLabel}`,
+      decision: null,
+      grade: null,
+      flags: null,
+    })
+
+    // Generate Coach's Notebook (async, non-blocking for the return value)
+    await generateAndSaveNotebook(userId, workoutId, kpis).catch(() => {})
+  }
+
   revalidatePath(`/workout/${workoutId}`)
+  revalidatePath("/dashboard")
   return { ok: true, analysis: parsed }
 }
