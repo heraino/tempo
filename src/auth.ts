@@ -5,7 +5,8 @@ import { db } from "@/lib/db"
 import { users, accounts, sessions, verificationTokens } from "@/lib/db/schema"
 
 // Auth.js reads AUTH_RESEND_KEY and AUTH_SECRET from env automatically.
-// trustHost lets it use the incoming request host for session cookie domain.
+// trustHost lets Auth.js use the request's host for magic-link callback URLs
+// so preview deployments send links back to the preview domain, not production.
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   adapter: DrizzleAdapter(db, {
@@ -18,13 +19,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Resend({
       from: "Tempo <onboarding@resend.dev>",
       // AUTH_URL is set globally in Vercel to the production domain, so the
-      // magic-link URL Auth.js constructs may point to production even when
-      // signing in from a preview deployment. We fix this by replacing the
-      // origin with VERCEL_URL, which Vercel sets per-deployment automatically.
+      // magic-link URL Auth.js constructs points to production even from a
+      // preview deployment. Replace the origin with VERCEL_URL, which Vercel
+      // sets per-deployment automatically, when they don't match.
       sendVerificationRequest: async ({ identifier: to, url, provider }) => {
         let finalUrl = url
-        if (process.env.VERCEL_URL) {
-          const expectedOrigin = `https://${process.env.VERCEL_URL}`
+        // VERCEL_BRANCH_URL is the stable branch alias (e.g. tempo-git-dev-…vercel.app)
+        // and is preferred over VERCEL_URL (unique per-deploy hash URL).
+        // Neither is set on production, so AUTH_URL keeps the production origin intact.
+        const vercelHost =
+          process.env.VERCEL_BRANCH_URL ?? process.env.VERCEL_URL
+        if (vercelHost) {
+          const expectedOrigin = `https://${vercelHost}`
           const parsed = new URL(url)
           if (parsed.origin !== expectedOrigin) {
             finalUrl = expectedOrigin + parsed.pathname + parsed.search

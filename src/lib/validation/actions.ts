@@ -61,6 +61,9 @@ export const uploadWorkoutSchema = z.object({
   nutritionNotes: optionalString(500),
   contextFreeText: optionalString(1000),
 
+  // Session type — athlete's explicit label; empty string = auto-detect
+  sessionKindOverride: optionalString(50),
+
   // Pain observations — JSON-encoded array written by the client before submit
   painEntriesJson: z
     .string()

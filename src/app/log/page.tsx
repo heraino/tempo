@@ -272,6 +272,23 @@ export default function LogPage() {
             />
           </div>
 
+          {/* Session type */}
+          <div>
+            <FieldLabel>Session type</FieldLabel>
+            <select name="sessionKindOverride" className={inputCls()}>
+              <option value="">— auto-detect —</option>
+              <option value="easy">Easy</option>
+              <option value="long">Long run</option>
+              <option value="tempo">Tempo</option>
+              <option value="threshold">Threshold</option>
+              <option value="recovery">Recovery</option>
+              <option value="other">Other</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-400">
+              Leave as "auto-detect" to classify by effort and distance.
+            </p>
+          </div>
+
           {/* RPE */}
           <div>
             <FieldLabel>How did it feel?</FieldLabel>
