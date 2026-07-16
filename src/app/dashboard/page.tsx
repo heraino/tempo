@@ -7,6 +7,30 @@ import { eq, desc } from "drizzle-orm"
 import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.service"
 import { resolveLocalDate } from "@/lib/plan/localDate"
 import { RecentWorkoutsCard } from "@/components/RecentWorkoutsCard"
+import { getKpiSnapshot } from "@/lib/services/kpi.service"
+import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
+
+function KpiCard({
+  label,
+  value,
+  sub,
+  highlight = false,
+}: {
+  label: string
+  value: string
+  sub?: string
+  highlight?: boolean
+}) {
+  return (
+    <div className="rounded-xl bg-gray-50 px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
+      <p className={`mt-1 text-lg font-bold tabular-nums ${highlight ? "text-amber-500" : "text-gray-900"}`}>
+        {value}
+      </p>
+      {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
+    </div>
+  )
+}
 
 export default async function DashboardPage() {
   const session = await auth()
@@ -17,7 +41,7 @@ export default async function DashboardPage() {
   const tz = await getAthleteTimezone(userId)
   const todayStr = resolveLocalDate(tz)
 
-  const [scheduleResult, recentLogs] = await Promise.all([
+  const [scheduleResult, recentLogs, kpis] = await Promise.all([
     getScheduleRange(userId, todayStr, 8),
     db
       .select()
@@ -25,6 +49,7 @@ export default async function DashboardPage() {
       .where(eq(workoutLogs.userId, userId))
       .orderBy(desc(workoutLogs.startTime))
       .limit(10),
+    getKpiSnapshot(userId),
   ])
 
   if (!scheduleResult) redirect("/onboarding")
@@ -143,6 +168,59 @@ export default async function DashboardPage() {
             })}
           </ul>
         </section>
+
+        {/* Performance KPIs */}
+        {(kpis.weeklyMileage != null ||
+          kpis.easyPaceAt140Mps != null ||
+          kpis.thresholdSpeedMps != null ||
+          kpis.longRunDistanceM != null) && (
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">Performance</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <KpiCard
+                label="Weekly mileage"
+                value={kpis.weeklyMileage != null ? fmtDistance(kpis.weeklyMileage) : "—"}
+              />
+              <KpiCard
+                label="Easy pace @140"
+                value={fmtPace(kpis.easyPaceAt140Mps)}
+                sub="HR-normalized"
+              />
+              <KpiCard
+                label="Aerobic efficiency"
+                value={kpis.aerobicEfficiency != null
+                  ? fmtNum(kpis.aerobicEfficiency, 2, "m/min/bpm")
+                  : "—"}
+              />
+              <KpiCard
+                label="HR drift"
+                value={kpis.hrDrift != null
+                  ? `${kpis.hrDrift > 0 ? "+" : ""}${kpis.hrDrift.toFixed(1)} bpm`
+                  : "—"}
+                sub="Last easy run"
+                highlight={kpis.hrDrift != null && kpis.hrDrift > 5}
+              />
+              <KpiCard
+                label="Threshold pace"
+                value={fmtPace(kpis.thresholdSpeedMps)}
+                sub="Last threshold"
+              />
+              <KpiCard
+                label="Long run"
+                value={fmtDistance(kpis.longRunDistanceM)}
+                sub="Last long run"
+              />
+              <KpiCard
+                label="Cadence — easy"
+                value={kpis.cadenceEasy != null ? `${kpis.cadenceEasy} spm` : "—"}
+              />
+              <KpiCard
+                label="Cadence — tempo"
+                value={kpis.cadenceTempo != null ? `${kpis.cadenceTempo} spm` : "—"}
+              />
+            </div>
+          </section>
+        )}
 
         {/* Recent workouts */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

@@ -8,6 +8,7 @@ import { uploadRawFile } from "@/lib/storage/blob"
 import { uploadWorkoutSchema } from "@/lib/validation/actions"
 import { findFitFileByUserAndSha256, createFitFile, findWorkoutByFitFileId, updateFitFileParseStatus } from "@/lib/services/fitFile.service"
 import { createWorkout } from "@/lib/services/workout.service"
+import { classifyWorkout } from "@/lib/analytics/classify"
 import { upsertAthleteContext } from "@/lib/services/athleteContext.service"
 import { createPainObservations } from "@/lib/services/painObservation.service"
 
@@ -44,6 +45,7 @@ export async function uploadWorkout(formData: FormData) {
     nutritionNotes: formData.get("nutritionNotes"),
     contextFreeText: formData.get("contextFreeText"),
     painEntriesJson: formData.get("painEntriesJson"),
+    sessionKindOverride: formData.get("sessionKindOverride"),
   })
   if (!validation.success) return { error: validation.error.errors[0].message }
   const data = validation.data
@@ -180,6 +182,13 @@ export async function uploadWorkout(formData: FormData) {
       deviceInfo: parsed.deviceInfo,
       notes: data.notes ?? null,
       perceivedEffort: data.perceivedEffort ?? null,
+      sessionKindOverride: data.sessionKindOverride ?? null,
+      observedSessionKind: classifyWorkout({
+        totalTimerSecs: parsed.totalTimerSecs,
+        totalDistanceM: parsed.totalDistanceM,
+        avgHr: parsed.avgHr,
+        sessionKindOverride: data.sessionKindOverride ?? null,
+      }),
     })
   } catch (err) {
     console.error("workout_log insert error:", err)

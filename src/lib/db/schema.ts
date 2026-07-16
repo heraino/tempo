@@ -88,8 +88,11 @@ export const workoutLogs = pgTable("workout_log", {
   // ── Phase 1: nullable FK to fit_files (populated from Phase 2 onward) ──
   fitFileId: text("fit_file_id").references(() => fitFiles.id, { onDelete: "set null" }),
 
-  // ── Observed session kind (populated by analytics engine, Phase 4+) ──
+  // ── Session classification ──
+  // observedSessionKind: computed heuristic (or linked planned session kind)
+  // sessionKindOverride: explicit athlete label set at upload time
   observedSessionKind: text("observed_session_kind"),
+  sessionKindOverride: text("session_kind_override"),
 
   // ── Athlete local timezone (IANA tz name, e.g. "America/New_York") ──
   athleteTimezone: text("athlete_timezone"),
