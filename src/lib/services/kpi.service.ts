@@ -17,18 +17,17 @@ export async function getKpiSnapshot(userId: string): Promise<KpiSnapshot> {
       avgHr: workoutLogs.avgHr,
       hrDriftBpm: workoutLogs.hrDriftBpm,
       avgCadence: workoutLogs.avgCadence,
-      observedSessionKind: workoutLogs.observedSessionKind,
+      sessionKindOverride: workoutLogs.sessionKindOverride,
     })
     .from(workoutLogs)
     .where(eq(workoutLogs.userId, userId))
     .orderBy(desc(workoutLogs.startTime))
     .limit(30)
 
-  // Apply in-memory classification for workouts with no stored observedSessionKind.
   const enriched = rows.map((w) => ({
     ...w,
     observedSessionKind:
-      w.observedSessionKind ??
+      w.sessionKindOverride ??
       heuristicClassify({
         totalTimerSecs: w.totalTimerSecs,
         totalDistanceM: w.totalDistanceM,

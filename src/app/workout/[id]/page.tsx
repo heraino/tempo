@@ -37,6 +37,36 @@ function StatGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-3 gap-4">{children}</div>
 }
 
+function getQualityLaps(laps: Record<string, unknown>[], kind: string): Record<string, unknown>[] {
+  const excluded = new Set(["warmup", "cooldown", "rest", "recovery"])
+  return laps.filter((lap) => {
+    const intensity = lap.intensity as string | undefined
+    if (intensity && excluded.has(intensity)) return false
+    const spd = (lap.avg_speed ?? lap.enhanced_avg_speed) as number | undefined
+    if (spd != null && spd < 1.85) return false
+    const hr = lap.avg_heart_rate as number | undefined
+    if (kind === "threshold" && hr != null && hr < 145) return false
+    if (kind === "tempo" && hr != null && hr < 135) return false
+    return true
+  })
+}
+
+function computeQualityStats(qualityLaps: Record<string, unknown>[]) {
+  let totalDist = 0, totalTime = 0, cadSum = 0, cadCount = 0
+  for (const lap of qualityLaps) {
+    totalDist += (lap.total_distance as number | undefined) ?? 0
+    totalTime += ((lap.total_timer_time ?? lap.total_elapsed_time) as number | undefined) ?? 0
+    const cad = (lap.avg_running_cadence ?? lap.avg_cadence) as number | undefined
+    if (cad) { cadSum += cad; cadCount++ }
+  }
+  return {
+    avgSpeedMps: totalTime > 0 ? totalDist / totalTime : null,
+    avgCadenceSingleFoot: cadCount > 0 ? Math.round(cadSum / cadCount) : null,
+    totalDistanceM: totalDist,
+    totalTimeSecs: totalTime,
+  }
+}
+
 // ── effort label ──────────────────────────────────────────────────────────────
 
 const EFFORT_LABELS: Record<number, string> = {
@@ -107,6 +137,11 @@ export default async function WorkoutDetailPage({
     log.runOnlyDistanceM != null || log.walkDurationSecs != null
 
   const laps = (log.laps as Record<string, unknown>[] | null) ?? []
+
+  const kind = (log.sessionKindOverride ?? log.observedSessionKind) as string | null
+  const isQualityRun = kind === "threshold" || kind === "tempo"
+  const qualityLaps = isQualityRun ? getQualityLaps(laps, kind!) : []
+  const qualityStats = qualityLaps.length > 0 ? computeQualityStats(qualityLaps) : null
 
   // Planned session linked via session_completion (may be null if uploaded without plan link)
   const plannedSession = plannedSessionRows[0]?.session ?? null
@@ -390,6 +425,25 @@ export default async function WorkoutDetailPage({
             )}
           </StatGrid>
         </Section>
+
+        {/* Quality work — threshold / tempo only */}
+        {qualityStats && (
+          <Section title={kind === "threshold" ? "Threshold work" : "Tempo work"}>
+            <StatGrid>
+              <Stat label="Working pace" value={fmtPace(qualityStats.avgSpeedMps)} />
+              <Stat label="Working distance" value={fmtDistance(qualityStats.totalDistanceM)} />
+              {qualityStats.avgCadenceSingleFoot != null && (
+                <Stat
+                  label="Working cadence"
+                  value={`${qualityStats.avgCadenceSingleFoot * 2} spm`}
+                />
+              )}
+            </StatGrid>
+            <p className="text-[10px] text-gray-400 mt-3">
+              {qualityLaps.length} quality {qualityLaps.length === 1 ? "lap" : "laps"} · warm-up, cool-down &amp; walk excluded
+            </p>
+          </Section>
+        )}
 
         {/* Pace & cadence */}
         <Section title="Pace & cadence">

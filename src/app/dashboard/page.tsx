@@ -15,11 +15,15 @@ function KpiCard({
   value,
   sub,
   highlight = false,
+  trend,
+  trendUp,
 }: {
   label: string
   value: string
   sub?: string
   highlight?: boolean
+  trend?: string
+  trendUp?: boolean
 }) {
   return (
     <div className="rounded-xl bg-gray-50 px-4 py-3">
@@ -28,8 +32,45 @@ function KpiCard({
         {value}
       </p>
       {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
+      {trend && (
+        <p className={`text-[10px] mt-0.5 ${trendUp ? "text-green-600" : "text-red-500"}`}>{trend}</p>
+      )}
     </div>
   )
+}
+
+function paceTrend(
+  currentMps: number | null,
+  prevMps: number | null,
+): { text: string; up: boolean } | null {
+  if (currentMps == null || prevMps == null) return null
+  const deltaSecs = 1609.344 / prevMps - 1609.344 / currentMps
+  if (Math.abs(deltaSecs) < 5) return { text: "≈ same", up: true }
+  const absSecs = Math.abs(Math.round(deltaSecs))
+  let formatted: string
+  if (absSecs >= 60) {
+    const m = Math.floor(absSecs / 60)
+    const s = absSecs % 60
+    formatted = `${m}:${s.toString().padStart(2, "0")}/mi`
+  } else {
+    formatted = `${absSecs}s/mi`
+  }
+  return deltaSecs > 0
+    ? { text: `↑ ${formatted} faster`, up: true }
+    : { text: `↓ ${formatted} slower`, up: false }
+}
+
+function cadenceTrend(
+  currentCad: number | null,
+  prevCad: number | null,
+): { text: string; up: boolean } | null {
+  if (currentCad == null || prevCad == null) return null
+  const delta = (currentCad - prevCad) * 2
+  if (Math.abs(delta) < 2) return { text: "≈ same", up: true }
+  const abs = Math.abs(Math.round(delta))
+  return delta > 0
+    ? { text: `↑ ${abs} spm`, up: true }
+    : { text: `↓ ${abs} spm`, up: false }
 }
 
 export default async function DashboardPage() {
@@ -181,54 +222,62 @@ export default async function DashboardPage() {
         </section>
 
         {/* Performance KPIs */}
-        {recentLogs.length > 0 && kpis != null && (
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Performance</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <KpiCard
-                label="Weekly mileage"
-                value={kpis.weeklyMileage != null ? fmtDistance(kpis.weeklyMileage) : "—"}
-              />
-              <KpiCard
-                label="Easy pace @140"
-                value={fmtPace(kpis.easyPaceAt140Mps)}
-                sub="HR-normalized"
-              />
-              <KpiCard
-                label="Aerobic efficiency"
-                value={kpis.aerobicEfficiency != null
-                  ? fmtNum(kpis.aerobicEfficiency, 2, "m/min/bpm")
-                  : "—"}
-              />
-              <KpiCard
-                label="HR drift"
-                value={kpis.hrDrift != null
-                  ? `${kpis.hrDrift > 0 ? "+" : ""}${kpis.hrDrift.toFixed(1)} bpm`
-                  : "—"}
-                sub="Last easy run"
-                highlight={kpis.hrDrift != null && kpis.hrDrift > 5}
-              />
-              <KpiCard
-                label="Threshold pace"
-                value={fmtPace(kpis.thresholdSpeedMps)}
-                sub="Last threshold"
-              />
-              <KpiCard
-                label="Long run"
-                value={fmtDistance(kpis.longRunDistanceM)}
-                sub="Last long run"
-              />
-              <KpiCard
-                label="Cadence — easy"
-                value={kpis.cadenceEasy != null ? `${kpis.cadenceEasy * 2} spm` : "—"}
-              />
-              <KpiCard
-                label="Cadence — tempo"
-                value={kpis.cadenceTempo != null ? `${kpis.cadenceTempo * 2} spm` : "—"}
-              />
-            </div>
-          </section>
-        )}
+        {recentLogs.length > 0 && kpis != null && (() => {
+          const threshTrend = paceTrend(kpis.thresholdSpeedMps, kpis.thresholdSpeedMpsPrev)
+          const cadTempoTrend = cadenceTrend(kpis.cadenceTempo, kpis.cadenceTempoPrev)
+          return (
+            <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+              <h2 className="text-lg font-bold text-gray-900 mb-4">Performance</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <KpiCard
+                  label="Weekly mileage"
+                  value={kpis.weeklyMileage != null ? fmtDistance(kpis.weeklyMileage) : "—"}
+                />
+                <KpiCard
+                  label="Easy pace @140"
+                  value={fmtPace(kpis.easyPaceAt140Mps)}
+                  sub="HR-normalized"
+                />
+                <KpiCard
+                  label="Aerobic efficiency"
+                  value={kpis.aerobicEfficiency != null
+                    ? fmtNum(kpis.aerobicEfficiency, 2, "m/min/bpm")
+                    : "—"}
+                />
+                <KpiCard
+                  label="HR drift"
+                  value={kpis.hrDrift != null
+                    ? `${kpis.hrDrift > 0 ? "+" : ""}${kpis.hrDrift.toFixed(1)} bpm`
+                    : "—"}
+                  sub="Last easy run"
+                  highlight={kpis.hrDrift != null && kpis.hrDrift > 5}
+                />
+                <KpiCard
+                  label="Threshold pace"
+                  value={fmtPace(kpis.thresholdSpeedMps)}
+                  sub="Last threshold"
+                  trend={threshTrend?.text}
+                  trendUp={threshTrend?.up}
+                />
+                <KpiCard
+                  label="Long run"
+                  value={fmtDistance(kpis.longRunDistanceM)}
+                  sub="Last long run"
+                />
+                <KpiCard
+                  label="Cadence — easy"
+                  value={kpis.cadenceEasy != null ? `${kpis.cadenceEasy * 2} spm` : "—"}
+                />
+                <KpiCard
+                  label="Cadence — tempo"
+                  value={kpis.cadenceTempo != null ? `${kpis.cadenceTempo * 2} spm` : "—"}
+                  trend={cadTempoTrend?.text}
+                  trendUp={cadTempoTrend?.up}
+                />
+              </div>
+            </section>
+          )
+        })()}
 
         {/* Recent workouts */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

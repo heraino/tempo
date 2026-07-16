@@ -18,9 +18,11 @@ export interface KpiSnapshot {
   aerobicEfficiency: number | null
   hrDrift: number | null
   thresholdSpeedMps: number | null
+  thresholdSpeedMpsPrev: number | null
   longRunDistanceM: number | null
   cadenceEasy: number | null
   cadenceTempo: number | null
+  cadenceTempoPrev: number | null
 }
 
 export function computeKpiSnapshot(
@@ -40,10 +42,14 @@ export function computeKpiSnapshot(
   const lastEasy = sorted.find(
     (w) => w.observedSessionKind === "easy" || w.observedSessionKind === "recovery"
   )
-  const lastTempo = sorted.find(
+  const tempos = sorted.filter(
     (w) => w.observedSessionKind === "tempo" || w.observedSessionKind === "threshold"
   )
-  const lastThreshold = sorted.find((w) => w.observedSessionKind === "threshold")
+  const lastTempo = tempos[0]
+  const prevTempo = tempos[1]
+  const thresholds = sorted.filter((w) => w.observedSessionKind === "threshold")
+  const lastThreshold = thresholds[0]
+  const prevThreshold = thresholds[1]
   const lastLong = sorted.find((w) => w.observedSessionKind === "long")
 
   let easyPaceAt140Mps: number | null = null
@@ -67,14 +73,27 @@ export function computeKpiSnapshot(
     )
   }
 
+  let thresholdSpeedMpsPrev: number | null = null
+  if (prevThreshold && (prevThreshold.totalTimerSecs ?? 0) >= 15 * 60) {
+    thresholdSpeedMpsPrev = resolveSpeedMps(
+      prevThreshold.avgSpeedMps,
+      prevThreshold.totalDistanceM,
+      prevThreshold.totalTimerSecs,
+    )
+  }
+
+  const cadenceTempoPrev = prevTempo?.avgCadence ?? null
+
   return {
     weeklyMileage: weeklyM > 0 ? weeklyM : null,
     easyPaceAt140Mps,
     aerobicEfficiency,
     hrDrift: lastEasy?.hrDriftBpm ?? null,
     thresholdSpeedMps,
+    thresholdSpeedMpsPrev,
     longRunDistanceM: lastLong?.totalDistanceM ?? null,
     cadenceEasy: lastEasy?.avgCadence ?? null,
     cadenceTempo: lastTempo?.avgCadence ?? null,
+    cadenceTempoPrev,
   }
 }
