@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { trainingPlans, trainingPlanVersions, plannedWorkoutDays, plannedSessions } from "@/lib/db/schema"
+import { trainingPlans, trainingPlanVersions, plannedWorkoutDays, plannedSessions, userPreferences } from "@/lib/db/schema"
 import { and, eq, desc, gte, lte } from "drizzle-orm"
 import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
@@ -32,6 +32,17 @@ export async function getActivePlanVersion(userId: string) {
  * has not been migrated yet on the production database.
  */
 export async function getAthleteTimezone(userId: string): Promise<string> {
+  try {
+    // User-set timezone in preferences takes precedence over plan-level setting
+    const prefRows = await db
+      .select({ timezone: userPreferences.timezone })
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .limit(1)
+    if (prefRows[0]?.timezone) return prefRows[0].timezone
+  } catch {
+    // Table may not exist yet; fall through to plan timezone
+  }
   try {
     const rows = await db
       .select({ timezone: trainingPlans.timezone })

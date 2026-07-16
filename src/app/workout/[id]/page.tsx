@@ -5,10 +5,12 @@ import { db } from "@/lib/db"
 import { workoutLogs, fitFiles, plannedSessions, sessionCompletions } from "@/lib/db/schema"
 import { eq, and } from "drizzle-orm"
 import {
-  fmtPace, fmtDistance, fmtDuration, fmtDateLong, fmtTemp, fmtNum, resolveSpeedMps,
+  fmtPace, fmtDistance, fmtDuration, fmtDateLong, fmtTempDisplay, fmtNum, resolveSpeedMps,
 } from "@/lib/fmt"
 import { getAthleteContextForWorkout } from "@/lib/services/athleteContext.service"
 import { getPainObservationsForWorkout } from "@/lib/services/painObservation.service"
+import { getUserPreferences } from "@/lib/services/userPreferences.service"
+import { EditWorkoutPanel } from "@/components/EditWorkoutPanel"
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 
@@ -66,6 +68,9 @@ export default async function WorkoutDetailPage({
   if (!session?.user?.id) redirect("/sign-in")
 
   const { id } = await params
+
+  const prefs = await getUserPreferences(session.user.id)
+  const units = prefs.unitsSystem as "imperial" | "metric"
 
   // Load workout log + fit file + athlete context + pain observations + planned session in parallel
   const [rows, athleteContext, painObs, plannedSessionRows] = await Promise.all([
@@ -190,6 +195,18 @@ export default async function WorkoutDetailPage({
           )}
         </section>
 
+        {/* Edit workout details */}
+        <EditWorkoutPanel
+          workoutId={log.id}
+          initial={{
+            sessionKindOverride: log.sessionKindOverride,
+            perceivedEffort: log.perceivedEffort,
+            notes: log.notes,
+            outsideTempC: athleteContext?.outsideTempC ?? null,
+          }}
+          units={units}
+        />
+
         {/* Planned workout */}
         {plannedSession && (
           <Section title="Planned workout">
@@ -290,7 +307,7 @@ export default async function WorkoutDetailPage({
               )}
               <div className="grid grid-cols-3 gap-4">
                 {athleteContext.outsideTempC != null && (
-                  <Stat label="Conditions" value={fmtTemp(athleteContext.outsideTempC)} sub={athleteContext.humidityPct != null ? `${athleteContext.humidityPct}% humidity` : undefined} />
+                  <Stat label="Conditions" value={fmtTempDisplay(athleteContext.outsideTempC, units)} sub={athleteContext.humidityPct != null ? `${athleteContext.humidityPct}% humidity` : undefined} />
                 )}
                 {athleteContext.sleepQuality != null && (
                   <Stat label="Sleep" value={`${athleteContext.sleepQuality}/5`} />
@@ -465,7 +482,7 @@ export default async function WorkoutDetailPage({
         <Section title="Other">
           <StatGrid>
             <Stat label="Calories" value={log.totalCalories ? `${log.totalCalories} kcal` : "—"} />
-            <Stat label="Avg temp" value={fmtTemp(log.avgTemperatureC)} />
+            <Stat label="Avg temp" value={fmtTempDisplay(log.avgTemperatureC, units)} />
             <Stat label="Duration" value={fmtDuration(log.totalElapsedSecs)} sub="elapsed" />
           </StatGrid>
         </Section>

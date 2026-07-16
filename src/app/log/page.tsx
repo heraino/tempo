@@ -285,7 +285,7 @@ export default function LogPage() {
               <option value="other">Other</option>
             </select>
             <p className="mt-1 text-xs text-gray-400">
-              Leave as "auto-detect" to classify by effort and distance.
+              Leave as &ldquo;auto-detect&rdquo; to classify by effort and distance.
             </p>
           </div>
 

@@ -50,7 +50,13 @@ export function fmtDateLong(d: Date): string {
 
 export function fmtTemp(c: number | null | undefined): string {
   if (c == null) return "—"
-  return `${Math.round(c)}°C`
+  return `${Math.round(c * 9 / 5 + 32)}°F`
+}
+
+export function fmtTempDisplay(c: number | null | undefined, units: "imperial" | "metric" = "imperial"): string {
+  if (c == null) return "—"
+  if (units === "metric") return `${Math.round(c)}°C`
+  return `${Math.round(c * 9 / 5 + 32)}°F`
 }
 
 export function fmtNum(

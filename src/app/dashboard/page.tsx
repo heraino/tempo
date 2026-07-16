@@ -64,7 +64,7 @@ export default async function DashboardPage() {
 
   if (!scheduleResult) redirect("/onboarding")
 
-  const { cycleWeekLabels, scheduledDays } = scheduleResult
+  const { scheduledDays } = scheduleResult
   const todayDay = scheduledDays[0]
   const upcomingDays = scheduledDays.slice(1)
 
@@ -134,7 +134,7 @@ export default async function DashboardPage() {
           <ul className="space-y-0">
             {upcomingDays.map((day) => {
               const dateObj = new Date(day.date + "T00:00:00.000Z")
-              const weekLabel = cycleWeekLabels[day.cycleWeekId] ?? `Week ${day.cycleWeekId}`
+              const weekLabel = `Week ${day.cycleWeekId}`
               const firstSession = day.sessions[0]
               const firstLine = firstSession ? firstSession.label : null
 

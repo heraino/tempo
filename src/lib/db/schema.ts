@@ -414,6 +414,19 @@ export const coachingAnalyses = pgTable("coaching_analysis", {
   createdAt: timestamp("created_at").defaultNow(),
 })
 
+// ─── User preferences ─────────────────────────────────────────────────────────
+// One row per user. unitsSystem controls distance/temperature display units.
+// timezone overrides the plan-level timezone for resolving "today".
+
+export const userPreferences = pgTable("user_preferences", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+  unitsSystem: text("units_system").notNull().default("imperial"),
+  timezone: text("timezone"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+})
+
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 // Background processing queue backed by the database. Used for async FIT
 // parsing, coaching analysis, schedule generation, and similar tasks.
