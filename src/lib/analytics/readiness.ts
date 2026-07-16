@@ -15,6 +15,15 @@ export interface MilestoneTarget {
   achieved: boolean
 }
 
+export interface MilestoneStage {
+  id: "current" | "m1" | "m2" | "advanced" | "goal"
+  label: string
+  description: string
+  completed: boolean   // all targets met
+  active: boolean      // the stage the athlete is currently working toward
+  targets: MilestoneTarget[]
+}
+
 export interface ReadinessResult {
   total: number
   milestone: "pre-m1" | "m1" | "m2" | "advanced"
@@ -26,115 +35,201 @@ export interface ReadinessResult {
     consistency: ReadinessComponent
     economy: ReadinessComponent
   }
-  nextMilestoneName: string
-  nextMilestoneTargets: MilestoneTarget[]
+  milestoneStages: MilestoneStage[]
 }
 
-// ─── Speed / distance reference points ───────────────────────────────────────
-// Easy pace at 140 bpm (m/s): 0% = 11:30/mi, 100% = 8:45/mi
-const E_FLOOR = 1609.344 / (11.5 * 60)
-const E_M1    = 1609.344 / (10.75 * 60)  // 10:45/mi
-const E_M2    = 1609.344 / (10.0 * 60)   // 10:00/mi
-const E_ADV   = 1609.344 / (8.75 * 60)   // 8:45/mi
+// ─── Reference speeds / distances ─────────────────────────────────────────────
+const E_FLOOR = 1609.344 / (11.5  * 60)   // 11:30/mi — score floor
+const E_M1    = 1609.344 / (10.75 * 60)   // 10:45/mi
+const E_M2    = 1609.344 / (10.0  * 60)   // 10:00/mi
+const E_ADV   = 1609.344 / (8.75  * 60)   //  8:45/mi — score ceiling
 
-// Threshold pace (m/s): 0% = 9:30/mi, 100% = 7:10/mi
-const T_FLOOR = 1609.344 / (9.5 * 60)
-const T_M1    = 1609.344 / (8.5 * 60)    // 8:30/mi
-const T_M2    = 1609.344 / (8.0 * 60)    // 8:00/mi
-const T_ADV   = 1609.344 / (7.167 * 60)  // 7:10/mi
+const T_FLOOR = 1609.344 / (9.5   * 60)   //  9:30/mi
+const T_M1    = 1609.344 / (8.5   * 60)   //  8:30/mi
+const T_M2    = 1609.344 / (8.0   * 60)   //  8:00/mi
+const T_ADV   = 1609.344 / (7.167 * 60)   //  7:10/mi
 
-// Long run (m): 0% = 5 miles, 100% = 14 miles
-const LR_FLOOR = 5 * 1609.344
-const LR_M1    = 8 * 1609.344
+const LR_FLOOR = 5  * 1609.344
+const LR_M1    = 8  * 1609.344
 const LR_M2    = 10 * 1609.344
 const LR_ADV   = 11 * 1609.344
 
-// Weekly mileage (m): 0% = 0, 100% = 25 miles/week
 const CON_TARGET = 25 * 1609.344
 
-// Cadence (full spm): 0% = 150, 100% = 172
 const CAD_FLOOR = 150
 const CAD_ADV   = 172
 
 function clamp(x: number) { return Math.max(0, Math.min(100, x)) }
+function lerp(x: number, lo: number, hi: number) { return clamp(((x - lo) / (hi - lo)) * 100) }
 
-function lerp(x: number, lo: number, hi: number) {
-  return clamp(((x - lo) / (hi - lo)) * 100)
+function speedTarget(
+  value: number | null,
+  threshold: number,
+  targetLabel: string,
+  metricLabel: string,
+): MilestoneTarget {
+  return {
+    metric: metricLabel,
+    current: value ? fmtPace(value) : "—",
+    target: targetLabel,
+    achieved: (value ?? 0) >= threshold,
+  }
+}
+
+function distTarget(
+  value: number | null,
+  threshold: number,
+  targetLabel: string,
+): MilestoneTarget {
+  return {
+    metric: "Long run",
+    current: value ? fmtDistance(value) : "—",
+    target: targetLabel,
+    achieved: (value ?? 0) >= threshold,
+  }
 }
 
 export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
-  const ae  = kpis.easyPaceAt140Mps ? lerp(kpis.easyPaceAt140Mps, E_FLOOR, E_ADV) : 0
-  const th  = kpis.thresholdSpeedMps ? lerp(kpis.thresholdSpeedMps, T_FLOOR, T_ADV) : 0
-  const lr  = kpis.longRunDistanceM ? lerp(kpis.longRunDistanceM, LR_FLOOR, LR_ADV * 1609.344 / 1609.344) : 0
-  const con = kpis.weeklyMileage ? clamp((kpis.weeklyMileage / CON_TARGET) * 100) : 0
-  const cadSpm = (kpis.cadenceEasy ?? kpis.cadenceTempo)
-    ? ((kpis.cadenceEasy ?? kpis.cadenceTempo)! * 2)
+  const ae  = kpis.easyPaceAt140Mps   ? lerp(kpis.easyPaceAt140Mps,   E_FLOOR, E_ADV)   : 0
+  const th  = kpis.thresholdSpeedMps  ? lerp(kpis.thresholdSpeedMps,  T_FLOOR, T_ADV)   : 0
+  const lr  = kpis.longRunDistanceM   ? lerp(kpis.longRunDistanceM,   LR_FLOOR, LR_ADV) : 0
+  const con = kpis.weeklyMileage      ? clamp((kpis.weeklyMileage / CON_TARGET) * 100)    : 0
+  const cadSpm = kpis.cadenceEasy != null
+    ? kpis.cadenceEasy * 2
+    : kpis.cadenceTempo != null
+    ? kpis.cadenceTempo * 2
     : null
   const eco = cadSpm ? lerp(cadSpm, CAD_FLOOR, CAD_ADV) : 0
 
   const total = Math.round(ae * 0.35 + th * 0.25 + lr * 0.20 + con * 0.15 + eco * 0.05)
 
+  // ── Milestone gates ──────────────────────────────────────────────────────────
   const passM1 = (kpis.easyPaceAt140Mps ?? 0) >= E_M1 &&
                  (kpis.thresholdSpeedMps ?? 0) >= T_M1 &&
-                 (kpis.longRunDistanceM ?? 0) >= LR_M1
+                 (kpis.longRunDistanceM  ?? 0) >= LR_M1
   const passM2 = passM1 &&
                  (kpis.easyPaceAt140Mps ?? 0) >= E_M2 &&
                  (kpis.thresholdSpeedMps ?? 0) >= T_M2 &&
-                 (kpis.longRunDistanceM ?? 0) >= LR_M2
+                 (kpis.longRunDistanceM  ?? 0) >= LR_M2
   const passAdv = passM2 &&
                   (kpis.easyPaceAt140Mps ?? 0) >= E_ADV &&
                   (kpis.thresholdSpeedMps ?? 0) >= T_ADV &&
-                  (kpis.longRunDistanceM ?? 0) >= LR_ADV
+                  (kpis.longRunDistanceM  ?? 0) >= LR_ADV
 
   const milestone: ReadinessResult["milestone"] =
     passAdv ? "advanced" : passM2 ? "m2" : passM1 ? "m1" : "pre-m1"
 
-  const milestoneLabels = {
-    "pre-m1": "Building base",
-    "m1": "Milestone 1 reached",
-    "m2": "Milestone 2 reached",
-    "advanced": "Advanced",
+  // ── Build stage list ─────────────────────────────────────────────────────────
+
+  const currentStage: MilestoneStage = {
+    id: "current",
+    label: "Current",
+    description: "Where you are today",
+    completed: false,
+    active: false,
+    targets: [
+      {
+        metric: "Easy pace @140 bpm",
+        current: kpis.easyPaceAt140Mps ? fmtPace(kpis.easyPaceAt140Mps) : "—",
+        target: "",
+        achieved: true,
+      },
+      {
+        metric: "Threshold pace",
+        current: kpis.thresholdSpeedMps ? fmtPace(kpis.thresholdSpeedMps) : "—",
+        target: "",
+        achieved: true,
+      },
+      {
+        metric: "Long run",
+        current: kpis.longRunDistanceM ? fmtDistance(kpis.longRunDistanceM) : "—",
+        target: "",
+        achieved: true,
+      },
+      {
+        metric: "Weekly mileage",
+        current: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) + "/wk" : "—",
+        target: "",
+        achieved: true,
+      },
+    ],
   }
 
-  let nextMilestoneName: string
-  let nextMilestoneTargets: MilestoneTarget[]
+  const m1Stage: MilestoneStage = {
+    id: "m1",
+    label: "Milestone 1",
+    description: "Aerobic base established",
+    completed: passM1,
+    active: !passM1,
+    targets: [
+      speedTarget(kpis.easyPaceAt140Mps, E_M1, "<10:45/mi", "Easy pace @140 bpm"),
+      speedTarget(kpis.thresholdSpeedMps, T_M1, "<8:30/mi",  "Threshold pace"),
+      distTarget(kpis.longRunDistanceM, LR_M1, "8–9 mi with minimal drift"),
+      {
+        metric: "Weekly mileage",
+        current: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) + "/wk" : "—",
+        target: "Consistent 5-run weeks",
+        achieved: (kpis.weeklyMileage ?? 0) >= 20 * 1609.344,
+      },
+    ],
+  }
 
-  if (milestone === "advanced") {
-    nextMilestoneName = "Goal: 7:20/mi half marathon by age 50"
-    nextMilestoneTargets = []
-  } else {
-    const targets: [string, number | null, string, number][] = milestone === "m2"
-      ? [
-          ["Easy pace @140", kpis.easyPaceAt140Mps, "8:45/mi", E_ADV],
-          ["Threshold pace", kpis.thresholdSpeedMps, "7:10/mi", T_ADV],
-          ["Long run", kpis.longRunDistanceM, "11 mi", LR_ADV],
-        ]
-      : milestone === "m1"
-      ? [
-          ["Easy pace @140", kpis.easyPaceAt140Mps, "10:00/mi", E_M2],
-          ["Threshold pace", kpis.thresholdSpeedMps, "8:00/mi", T_M2],
-          ["Long run", kpis.longRunDistanceM, "10 mi", LR_M2],
-        ]
-      : [
-          ["Easy pace @140", kpis.easyPaceAt140Mps, "10:45/mi", E_M1],
-          ["Threshold pace", kpis.thresholdSpeedMps, "8:30/mi", T_M1],
-          ["Long run", kpis.longRunDistanceM, "8 mi", LR_M1],
-        ]
+  const m2Stage: MilestoneStage = {
+    id: "m2",
+    label: "Milestone 2",
+    description: "Quality work taking hold",
+    completed: passM2,
+    active: passM1 && !passM2,
+    targets: [
+      speedTarget(kpis.easyPaceAt140Mps, E_M2, "~10:00/mi",  "Easy pace @140 bpm"),
+      speedTarget(kpis.thresholdSpeedMps, T_M2, "<8:00/mi",   "Threshold pace"),
+      distTarget(kpis.longRunDistanceM, LR_M2, "10–11 mi with good durability"),
+      {
+        metric: "Weekly mileage",
+        current: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) + "/wk" : "—",
+        target: "Stable 20–25 mi weeks",
+        achieved: (kpis.weeklyMileage ?? 0) >= 20 * 1609.344,
+      },
+    ],
+  }
 
-    nextMilestoneName = milestone === "m2" ? "Advanced readiness" : milestone === "m1" ? "Milestone 2" : "Milestone 1"
-    nextMilestoneTargets = targets.map(([metric, value, target, threshold]) => {
-      const isSpeed = metric !== "Long run"
-      const current = isSpeed
-        ? (value ? fmtPace(value) : "—")
-        : (value ? fmtDistance(value) : "—")
-      return { metric, current, target, achieved: (value ?? 0) >= threshold }
-    })
+  const advStage: MilestoneStage = {
+    id: "advanced",
+    label: "Race-ready",
+    description: "7:20/mi half marathon plausible",
+    completed: passAdv,
+    active: passM2 && !passAdv,
+    targets: [
+      speedTarget(kpis.easyPaceAt140Mps, E_ADV, "8:45–9:30/mi",  "Easy pace @140 bpm"),
+      speedTarget(kpis.thresholdSpeedMps, T_ADV, "6:55–7:10/mi",  "Threshold pace"),
+      distTarget(kpis.longRunDistanceM, LR_ADV, "11–14 mi controlled"),
+      {
+        metric: "Race-specific work",
+        current: "—",
+        target: "7:20–7:30/mi pace work",
+        achieved: false,
+      },
+    ],
+  }
+
+  const goalStage: MilestoneStage = {
+    id: "goal",
+    label: "Goal",
+    description: "Half marathon · 7:20/mi · age 50",
+    completed: false,
+    active: false,
+    targets: [],
   }
 
   return {
     total,
     milestone,
-    milestoneLabel: milestoneLabels[milestone],
+    milestoneLabel: {
+      "pre-m1":   "Building base",
+      "m1":       "Milestone 1 reached",
+      "m2":       "Milestone 2 reached",
+      "advanced": "Advanced",
+    }[milestone],
     components: {
       aerobicEngine: {
         score: Math.round(ae), weight: 35, label: "Aerobic engine",
@@ -157,7 +252,6 @@ export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
         detail: cadSpm ? `${cadSpm} spm` : "No cadence data",
       },
     },
-    nextMilestoneName,
-    nextMilestoneTargets,
+    milestoneStages: [currentStage, m1Stage, m2Stage, advStage, goalStage],
   }
 }
