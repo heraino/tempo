@@ -179,6 +179,11 @@ export default async function DashboardPage() {
           </ul>
         </section>
 
+        {/* Temporary debug — remove once KPI card is confirmed working */}
+        <section className="bg-yellow-50 rounded-2xl border border-yellow-200 p-4 text-xs text-yellow-900 font-mono">
+          workouts: {recentLogs.length} | kpis: {kpis === null ? "null (error)" : "ok"} | weeklyMi: {kpis?.weeklyMileage ?? "—"} | easyAt140: {kpis?.easyPaceAt140Mps ?? "—"}
+        </section>
+
         {/* Performance KPIs */}
         {recentLogs.length > 0 && kpis != null && (
           <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
