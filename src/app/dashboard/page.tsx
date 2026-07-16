@@ -170,10 +170,7 @@ export default async function DashboardPage() {
         </section>
 
         {/* Performance KPIs */}
-        {(kpis.weeklyMileage != null ||
-          kpis.easyPaceAt140Mps != null ||
-          kpis.thresholdSpeedMps != null ||
-          kpis.longRunDistanceM != null) && (
+        {recentLogs.length > 0 && (
           <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <h2 className="text-lg font-bold text-gray-900 mb-4">Performance</h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
