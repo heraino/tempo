@@ -2,8 +2,8 @@ import { auth } from "@/auth"
 import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
-import { workoutLogs, fitFiles, plannedSessions, sessionCompletions } from "@/lib/db/schema"
-import { eq, and } from "drizzle-orm"
+import { workoutLogs, fitFiles, plannedSessions, sessionCompletions, coachingAnalyses } from "@/lib/db/schema"
+import { eq, and, desc } from "drizzle-orm"
 import {
   fmtPace, fmtDistance, fmtDuration, fmtDateLong, fmtTempDisplay, fmtNum, resolveSpeedMps,
 } from "@/lib/fmt"
@@ -11,6 +11,8 @@ import { getAthleteContextForWorkout } from "@/lib/services/athleteContext.servi
 import { getPainObservationsForWorkout } from "@/lib/services/painObservation.service"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { EditWorkoutPanel } from "@/components/EditWorkoutPanel"
+import { CoachAnalysisSection } from "@/components/CoachAnalysisSection"
+import type { CoachOutput } from "@/app/workout/coach-actions"
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 
@@ -134,8 +136,8 @@ export default async function WorkoutDetailPage({
   const prefs = await getUserPreferences(session.user.id)
   const units = prefs.unitsSystem as "imperial" | "metric"
 
-  // Load workout log + fit file + athlete context + pain observations + planned session in parallel
-  const [rows, athleteContext, painObs, plannedSessionRows] = await Promise.all([
+  // Load workout log + fit file + athlete context + pain observations + planned session + latest coaching analysis
+  const [rows, athleteContext, painObs, plannedSessionRows, coachRows] = await Promise.all([
     db
       .select({
         log: workoutLogs,
@@ -153,12 +155,19 @@ export default async function WorkoutDetailPage({
       .innerJoin(plannedSessions, eq(sessionCompletions.plannedSessionId, plannedSessions.id))
       .where(eq(sessionCompletions.workoutLogId, id))
       .limit(1),
+    db
+      .select({ responseParsed: coachingAnalyses.responseParsed })
+      .from(coachingAnalyses)
+      .where(eq(coachingAnalyses.workoutLogId, id))
+      .orderBy(desc(coachingAnalyses.createdAt))
+      .limit(1),
   ])
 
   const row = rows[0]
   if (!row) notFound()
 
   const { log, fitFile } = row
+  const savedAnalysis = (coachRows[0]?.responseParsed ?? null) as CoachOutput | null
   const startDate = new Date(log.startTime)
 
   // Use "Overall Run" for generic running workouts instead of "Running · generic"
@@ -272,6 +281,9 @@ export default async function WorkoutDetailPage({
             </p>
           )}
         </section>
+
+        {/* Coach analysis */}
+        <CoachAnalysisSection workoutId={log.id} initial={savedAnalysis} />
 
         {/* Edit workout details */}
         <EditWorkoutPanel

@@ -39,9 +39,19 @@ function GearIcon({ active }: { active: boolean }) {
   )
 }
 
+function HistoryIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 3" />
+    </svg>
+  )
+}
+
 const tabs = [
   { href: "/dashboard", label: "Dashboard", Icon: HomeIcon },
   { href: "/log",       label: "Log",       Icon: PlusIcon },
+  { href: "/history",   label: "History",   Icon: HistoryIcon },
   { href: "/onboarding", label: "Plan",     Icon: PlanIcon },
   { href: "/settings",  label: "Settings",  Icon: GearIcon },
 ]
