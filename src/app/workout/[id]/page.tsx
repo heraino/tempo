@@ -12,6 +12,7 @@ import { getPainObservationsForWorkout } from "@/lib/services/painObservation.se
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { EditWorkoutPanel } from "@/components/EditWorkoutPanel"
 import { CoachAnalysisSection } from "@/components/CoachAnalysisSection"
+import { WorkoutCharts } from "@/components/WorkoutCharts"
 import type { CoachOutput } from "@/app/workout/coach-actions"
 
 // ── small helpers ─────────────────────────────────────────────────────────────
@@ -281,6 +282,9 @@ export default async function WorkoutDetailPage({
             </p>
           )}
         </section>
+
+        {/* Activity charts — lazy loaded from records jsonb */}
+        <WorkoutCharts workoutId={log.id} />
 
         {/* Coach analysis */}
         <CoachAnalysisSection workoutId={log.id} initial={savedAnalysis} />
