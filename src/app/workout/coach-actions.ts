@@ -279,7 +279,11 @@ export async function generateCoachingAnalysis(workoutId: string): Promise<{
     recentContext: kpis
       ? {
           easyPaceAt140: mpsToMinPerMile(kpis.easyPaceAt140Mps),
+          easyPaceAt145: mpsToMinPerMile(kpis.easyPaceAt145Mps),
+          aerobicDecouplingPct: kpis.decouplingPct,
           thresholdPace: mpsToMinPerMile(kpis.thresholdSpeedMps),
+          thresholdAvgHr: kpis.thresholdAvgHr,
+          thresholdMaxHr: kpis.thresholdMaxHr,
           lastLongRun: kpis.longRunDistanceM ? fmtDistance(kpis.longRunDistanceM) : null,
           weeklyMileage: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) : null,
         }

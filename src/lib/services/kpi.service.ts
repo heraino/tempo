@@ -21,15 +21,20 @@ function qualityLapStats(laps: Record<string, unknown>[], kind: string) {
   })
   if (quality.length === 0) return null
   let dist = 0, time = 0, cadSum = 0, cadCount = 0
+  let hrSum = 0, hrCount = 0, hrMax = 0
   for (const lap of quality) {
     dist += (lap.total_distance as number | undefined) ?? 0
     time += ((lap.total_timer_time ?? lap.total_elapsed_time) as number | undefined) ?? 0
     const cad = (lap.avg_running_cadence ?? lap.avg_cadence) as number | undefined
     if (cad) { cadSum += cad; cadCount++ }
+    const hr = lap.avg_heart_rate as number | undefined
+    if (hr) { hrSum += hr; hrCount++; if (hr > hrMax) hrMax = hr }
   }
   return {
     avgSpeedMps: time > 0 ? dist / time : null,
     avgCadence: cadCount > 0 ? Math.round(cadSum / cadCount) : null,
+    avgHr: hrCount > 0 ? Math.round(hrSum / hrCount) : null,
+    maxHr: hrMax > 0 ? hrMax : null,
   }
 }
 
@@ -43,6 +48,8 @@ export async function getKpiSnapshot(userId: string): Promise<KpiSnapshot> {
       avgSpeedMps: workoutLogs.avgSpeedMps,
       avgHr: workoutLogs.avgHr,
       hrDriftBpm: workoutLogs.hrDriftBpm,
+      firstHalfAvgHr: workoutLogs.firstHalfAvgHr,
+      secondHalfAvgHr: workoutLogs.secondHalfAvgHr,
       avgCadence: workoutLogs.avgCadence,
       sessionKindOverride: workoutLogs.sessionKindOverride,
       observedSessionKind: workoutLogs.observedSessionKind,
@@ -67,6 +74,8 @@ export async function getKpiSnapshot(userId: string): Promise<KpiSnapshot> {
       observedSessionKind: kind,
       qualitySpeedMps: qStats?.avgSpeedMps ?? null,
       qualityCadence: qStats?.avgCadence ?? null,
+      qualityAvgHr: qStats?.avgHr ?? null,
+      qualityMaxHr: qStats?.maxHr ?? null,
     }
   })
 

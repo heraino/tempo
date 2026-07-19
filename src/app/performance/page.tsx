@@ -146,6 +146,13 @@ export default async function PerformancePage() {
                 sub="HR-normalized to 140 bpm"
                 highlight={(kpis.easyPaceAt140Mps >= E_M1_MPS) ? "good" : undefined}
               />
+              {kpis.easyPaceAt145Mps != null && (
+                <StatRow
+                  label="Easy pace @145 bpm"
+                  value={fmtPace(kpis.easyPaceAt145Mps)}
+                  sub="HR-normalized to 145 bpm"
+                />
+              )}
               {kpis.aerobicEfficiency != null && (
                 <StatRow
                   label="Aerobic efficiency"
@@ -159,6 +166,14 @@ export default async function PerformancePage() {
                   value={`${kpis.hrDrift > 0 ? "+" : ""}${kpis.hrDrift.toFixed(1)} bpm`}
                   sub={kpis.hrDrift > 5 ? "Elevated — monitor" : "Normal"}
                   highlight={kpis.hrDrift > 5 ? "warn" : "good"}
+                />
+              )}
+              {kpis.decouplingPct != null && (
+                <StatRow
+                  label="Aerobic decoupling"
+                  value={`${kpis.decouplingPct > 0 ? "+" : ""}${kpis.decouplingPct.toFixed(1)}%`}
+                  sub={kpis.decouplingPct > 5 ? "Elevated cardiac drift" : kpis.decouplingPct <= 5 ? "Well-coupled" : "Normal"}
+                  highlight={kpis.decouplingPct > 5 ? "warn" : "good"}
                 />
               )}
               {cadenceEasySpm != null && (

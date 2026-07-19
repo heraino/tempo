@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
-import { eq, desc, and, gte, lte } from "drizzle-orm"
+import { eq, desc, and, or, isNull } from "drizzle-orm"
 import { fmtPace, fmtDistance, fmtDuration, fmtDate, resolveSpeedMps } from "@/lib/fmt"
 
 const KIND_LABELS: Record<string, string> = {
@@ -39,11 +39,20 @@ export default async function HistoryPage({
   const kind = typeof sp.kind === "string" ? sp.kind : "all"
   const page = Math.max(1, parseInt(typeof sp.page === "string" ? sp.page : "1", 10))
 
-  const conditions = [eq(workoutLogs.userId, userId)]
-
-  // Build filter: kind "all" shows everything; otherwise filter by sessionKindOverride
-  // (observedSessionKind fallback would require a subquery — skip for now)
   const kindOptions = ["all", "easy", "long", "tempo", "threshold", "recovery", "other"]
+
+  const conditions = [eq(workoutLogs.userId, userId)]
+  if (kind !== "all") {
+    conditions.push(
+      or(
+        eq(workoutLogs.sessionKindOverride, kind),
+        and(
+          isNull(workoutLogs.sessionKindOverride),
+          eq(workoutLogs.observedSessionKind, kind),
+        ),
+      )!
+    )
+  }
 
   const rows = await db
     .select({
@@ -60,9 +69,9 @@ export default async function HistoryPage({
       observedSessionKind: workoutLogs.observedSessionKind,
     })
     .from(workoutLogs)
-    .where(eq(workoutLogs.userId, userId))
+    .where(and(...conditions))
     .orderBy(desc(workoutLogs.startTime))
-    .limit(PAGE_SIZE + 1)  // fetch one extra to detect next page
+    .limit(PAGE_SIZE + 1)
     .offset((page - 1) * PAGE_SIZE)
 
   const hasNext = rows.length > PAGE_SIZE
