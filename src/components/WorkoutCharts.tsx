@@ -192,8 +192,15 @@ export function WorkoutCharts({ workoutId }: { workoutId: string }) {
       .catch(() => setError(true))
   }, [workoutId])
 
-  if (error) return null
   if (points === null) {
+    if (error) {
+      return (
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Activity</h2>
+          <p className="text-sm text-gray-400">No per-second data in this file. Charts are available for workouts recorded with a GPS watch.</p>
+        </section>
+      )
+    }
     // Loading skeleton
     return (
       <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -209,7 +216,14 @@ export function WorkoutCharts({ workoutId }: { workoutId: string }) {
       </section>
     )
   }
-  if (points.length === 0) return null
+  if (points.length === 0) {
+    return (
+      <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Activity</h2>
+        <p className="text-sm text-gray-400">No per-second data in this file. Charts are available for workouts recorded with a GPS watch.</p>
+      </section>
+    )
+  }
 
   const hasAltitude = points.some((p) => p.altitude != null && p.altitude > 0)
 
