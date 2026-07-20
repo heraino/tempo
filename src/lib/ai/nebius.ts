@@ -1,6 +1,6 @@
-const BASE_URL = (process.env.NEBIUS_BASE_URL ?? "https://api.studio.nebius.ai/v1").replace(/\/$/, "")
+const BASE_URL = (process.env.NEBIUS_BASE_URL ?? "https://api.studio.nebius.com/v1").replace(/\/$/, "")
 const API_KEY = process.env.NEBIUS_API_KEY ?? ""
-const DEFAULT_MODEL = process.env.NEBIUS_MODEL ?? "meta-llama/Meta-Llama-3.1-70B-Instruct"
+const DEFAULT_MODEL = process.env.NEBIUS_MODEL ?? "meta-llama/Meta-Llama-3.3-70B-Instruct"
 
 export async function nebiusChat(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
