@@ -41,17 +41,29 @@ export async function GET(
   // Downsample: target ~400 points max
   const step = Math.max(1, Math.floor(raw.length / 400))
 
+  // Compute start time from first record's timestamp for elapsed fallback
+  const firstTs = raw[0]?.timestamp as string | undefined
+  const startMs = firstTs ? new Date(firstTs).getTime() : null
+
   const points: RecordPoint[] = raw
     .filter((_, i) => i % step === 0)
     .map((r) => {
-      // fit-file-parser adds `elapsed` (seconds) when elapsedRecordField: true
-      const t = (r.elapsed as number | undefined) ?? null
+      // Prefer timestamp-derived elapsed (reliable across all stored records),
+      // fall back to fit-file-parser's elapsed field, then 0.
+      const ts = r.timestamp as string | undefined
+      let t: number
+      if (startMs !== null && ts) {
+        t = (new Date(ts).getTime() - startMs) / 1000
+      } else {
+        const elapsed = r.elapsed as number | undefined
+        t = typeof elapsed === "number" ? elapsed : 0
+      }
       const speed = (r.enhanced_speed ?? r.speed) as number | undefined
       const hr = r.heart_rate as number | undefined
       const cad = (r.running_cadence ?? r.cadence) as number | undefined
       const alt = (r.enhanced_altitude ?? r.altitude) as number | undefined
       return {
-        t: t ?? 0,
+        t,
         speedMps: (speed != null && speed > 0.3) ? speed : null,
         hr: hr ?? null,
         cadence: cad ? cad * 2 : null,
