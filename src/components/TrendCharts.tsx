@@ -20,6 +20,7 @@ const tooltipStyle = {
   border: "1px solid #E5E7EB",
   borderRadius: 8,
   fontSize: 12,
+  padding: "6px 10px",
   boxShadow: "0 2px 8px rgba(0,0,0,.08)",
 }
 
@@ -62,6 +63,8 @@ export function TrendCharts({
               />
               <Tooltip
                 contentStyle={tooltipStyle}
+                cursor={{ fill: "#F9FAFB" }}
+                labelFormatter={(label) => `Week of ${label}`}
                 formatter={(v) => [`${Number(v).toFixed(1)} mi`, "Mileage"]}
               />
               <Bar dataKey="miles" fill="#F97316" radius={[3, 3, 0, 0]} isAnimationActive={false} />
@@ -93,6 +96,8 @@ export function TrendCharts({
               />
               <Tooltip
                 contentStyle={tooltipStyle}
+                cursor={{ stroke: "#F3F4F6", strokeWidth: 1 }}
+                labelFormatter={(label) => String(label)}
                 formatter={(v) => [`${fmtPaceDecimal(Number(v))}/mi`, "Easy pace"]}
               />
               <Line
@@ -100,7 +105,8 @@ export function TrendCharts({
                 dataKey="paceDecimal"
                 stroke="#EF4444"
                 strokeWidth={1.5}
-                dot={{ r: 2.5, fill: "#EF4444", strokeWidth: 0 }}
+                dot={{ r: 3, fill: "#EF4444", strokeWidth: 0 }}
+                activeDot={{ r: 6, fill: "#EF4444", strokeWidth: 2, stroke: "#fff" }}
                 isAnimationActive={false}
               />
             </LineChart>
@@ -129,6 +135,8 @@ export function TrendCharts({
               />
               <Tooltip
                 contentStyle={tooltipStyle}
+                cursor={{ stroke: "#F3F4F6", strokeWidth: 1 }}
+                labelFormatter={(label) => String(label)}
                 formatter={(v) => [`${Number(v)}/100`, "Readiness"]}
               />
               <Line
@@ -136,7 +144,8 @@ export function TrendCharts({
                 dataKey="score"
                 stroke="#22C55E"
                 strokeWidth={1.5}
-                dot={{ r: 2.5, fill: "#22C55E", strokeWidth: 0 }}
+                dot={{ r: 3, fill: "#22C55E", strokeWidth: 0 }}
+                activeDot={{ r: 6, fill: "#22C55E", strokeWidth: 2, stroke: "#fff" }}
                 isAnimationActive={false}
               />
             </LineChart>

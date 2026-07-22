@@ -38,6 +38,9 @@ export default async function HistoryPage({
   const sp = await searchParams
   const kind = typeof sp.kind === "string" ? sp.kind : "all"
   const page = Math.max(1, parseInt(typeof sp.page === "string" ? sp.page : "1", 10))
+  const period = (typeof sp.period === "string" && ["weekly", "monthly", "yearly"].includes(sp.period))
+    ? (sp.period as "weekly" | "monthly" | "yearly")
+    : "weekly"
 
   const kindOptions = ["all", "easy", "long", "tempo", "threshold", "recovery", "other"]
 
@@ -54,7 +57,8 @@ export default async function HistoryPage({
     )
   }
 
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+  const trendDays = period === "yearly" ? 5 * 365 : period === "monthly" ? 2 * 365 : 90
+  const trendCutoff = new Date(Date.now() - trendDays * 24 * 60 * 60 * 1000)
   const [rows, trendRows] = await Promise.all([
     db.select({
       id: workoutLogs.id,
@@ -77,47 +81,74 @@ export default async function HistoryPage({
     db
       .select({ startTime: workoutLogs.startTime, totalDistanceM: workoutLogs.totalDistanceM })
       .from(workoutLogs)
-      .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, ninetyDaysAgo)))
+      .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, trendCutoff)))
       .orderBy(asc(workoutLogs.startTime)),
   ])
 
   const hasNext = rows.length > PAGE_SIZE
   const workouts = rows.slice(0, PAGE_SIZE)
 
-  // Weekly mileage buckets — last 12 weeks
-  function weekStartKey(d: Date): string {
-    const date = new Date(d)
-    const day = date.getUTCDay()
-    date.setUTCDate(date.getUTCDate() + (day === 0 ? -6 : 1 - day))
-    date.setUTCHours(0, 0, 0, 0)
-    return date.toISOString().slice(0, 10)
-  }
+  // Build mileage buckets based on period
   const now = new Date()
-  const weekBuckets = new Map<string, { label: string; miles: number }>()
-  for (let i = 11; i >= 0; i--) {
-    const ws = new Date(now)
-    const day = ws.getUTCDay()
-    ws.setUTCDate(ws.getUTCDate() + (day === 0 ? -6 : 1 - day) - i * 7)
-    ws.setUTCHours(0, 0, 0, 0)
-    const key = ws.toISOString().slice(0, 10)
-    const label = ws.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-    weekBuckets.set(key, { label, miles: 0 })
-  }
-  for (const w of trendRows) {
-    if (!w.totalDistanceM || !w.startTime) continue
-    const key = weekStartKey(new Date(w.startTime))
-    const bucket = weekBuckets.get(key)
-    if (bucket) bucket.miles += w.totalDistanceM / 1609.344
-  }
-  const weeklyBuckets = Array.from(weekBuckets.values())
-  const maxMiles = Math.max(...weeklyBuckets.map((b) => b.miles), 1)
-  const totalMilesThisWeek = weeklyBuckets[weeklyBuckets.length - 1]?.miles ?? 0
-  const totalMilesLastWeek = weeklyBuckets[weeklyBuckets.length - 2]?.miles ?? 0
+  type Bucket = { label: string; miles: number }
+  const bucketMap = new Map<string, Bucket>()
 
-  function makeUrl(newKind: string, newPage: number) {
+  if (period === "weekly") {
+    for (let i = 11; i >= 0; i--) {
+      const ws = new Date(now)
+      const day = ws.getUTCDay()
+      ws.setUTCDate(ws.getUTCDate() + (day === 0 ? -6 : 1 - day) - i * 7)
+      ws.setUTCHours(0, 0, 0, 0)
+      const key = ws.toISOString().slice(0, 10)
+      bucketMap.set(key, { label: ws.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }), miles: 0 })
+    }
+    for (const w of trendRows) {
+      if (!w.totalDistanceM || !w.startTime) continue
+      const d = new Date(w.startTime)
+      const day = d.getUTCDay()
+      d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day))
+      d.setUTCHours(0, 0, 0, 0)
+      const b = bucketMap.get(d.toISOString().slice(0, 10))
+      if (b) b.miles += w.totalDistanceM / 1609.344
+    }
+  } else if (period === "monthly") {
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+      bucketMap.set(key, { label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" }), miles: 0 })
+    }
+    for (const w of trendRows) {
+      if (!w.totalDistanceM || !w.startTime) continue
+      const d = new Date(w.startTime)
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+      const b = bucketMap.get(key)
+      if (b) b.miles += w.totalDistanceM / 1609.344
+    }
+  } else {
+    const startYear = now.getUTCFullYear() - 4
+    for (let y = startYear; y <= now.getUTCFullYear(); y++) {
+      bucketMap.set(String(y), { label: String(y), miles: 0 })
+    }
+    for (const w of trendRows) {
+      if (!w.totalDistanceM || !w.startTime) continue
+      const key = String(new Date(w.startTime).getUTCFullYear())
+      const b = bucketMap.get(key)
+      if (b) b.miles += w.totalDistanceM / 1609.344
+    }
+  }
+
+  const mileageBuckets = Array.from(bucketMap.values()).map((b) => ({ ...b, miles: Math.round(b.miles * 10) / 10 }))
+  const maxMiles = Math.max(...mileageBuckets.map((b) => b.miles), 1)
+  const currentMiles = mileageBuckets[mileageBuckets.length - 1]?.miles ?? 0
+  const previousMiles = mileageBuckets[mileageBuckets.length - 2]?.miles ?? 0
+  const currentLabel = period === "yearly" ? "This year" : period === "monthly" ? "This month" : "This week"
+  const previousLabel = period === "yearly" ? "Last year" : period === "monthly" ? "Last month" : "Last week"
+
+  function makeUrl(newKind: string, newPage: number, newPeriod = period) {
     const params = new URLSearchParams()
     if (newKind !== "all") params.set("kind", newKind)
     if (newPage > 1) params.set("page", String(newPage))
+    if (newPeriod !== "weekly") params.set("period", newPeriod)
     const qs = params.toString()
     return `/history${qs ? `?${qs}` : ""}`
   }
@@ -151,30 +182,45 @@ export default async function HistoryPage({
           ))}
         </div>
 
-        {/* Weekly mileage strip */}
+        {/* Mileage strip */}
         {trendRows.length > 0 && (
           <section className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 pt-4 pb-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Weekly mileage</p>
+            <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+              {/* Period selector */}
+              <div className="flex gap-1">
+                {(["weekly", "monthly", "yearly"] as const).map((p) => (
+                  <Link
+                    key={p}
+                    href={makeUrl(kind, 1, p)}
+                    className={`text-[10px] font-semibold rounded-full px-2.5 py-1 transition-colors ${
+                      period === p
+                        ? "bg-orange-500 text-white"
+                        : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                    }`}
+                  >
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </Link>
+                ))}
+              </div>
               <div className="flex items-center gap-3 text-xs text-gray-500">
-                <span>This week: <span className="font-semibold text-gray-800">{totalMilesThisWeek.toFixed(1)} mi</span></span>
+                <span>{currentLabel}: <span className="font-semibold text-gray-800">{currentMiles.toFixed(1)} mi</span></span>
                 <span className="text-gray-200">·</span>
-                <span>Last week: <span className="font-semibold text-gray-800">{totalMilesLastWeek.toFixed(1)} mi</span></span>
+                <span>{previousLabel}: <span className="font-semibold text-gray-800">{previousMiles.toFixed(1)} mi</span></span>
               </div>
             </div>
-            <div className="flex items-end gap-1">
-              {weeklyBuckets.map(({ label, miles }) => {
-                const heightPx = Math.round((miles / maxMiles) * 48)
-                const isCurrentWeek = weeklyBuckets[weeklyBuckets.length - 1]?.label === label
+            <div className="flex items-end gap-0.5">
+              {mileageBuckets.map(({ label, miles }, idx) => {
+                const heightPx = Math.round((miles / maxMiles) * 52)
+                const isCurrent = idx === mileageBuckets.length - 1
                 return (
                   <div key={label} className="flex-1 flex flex-col items-center gap-1">
                     <span className="text-[8px] text-gray-400 tabular-nums h-3 leading-3">
                       {miles > 0 ? miles.toFixed(0) : ""}
                     </span>
-                    <div className="w-full flex flex-col justify-end rounded-t-sm" style={{ height: 48 }}>
+                    <div className="w-full flex flex-col justify-end" style={{ height: 52 }}>
                       {heightPx > 0 && (
                         <div
-                          className={`w-full rounded-t-sm ${isCurrentWeek ? "bg-orange-500" : "bg-orange-200"}`}
+                          className={`w-full rounded-t-sm ${isCurrent ? "bg-orange-500" : "bg-orange-200"}`}
                           style={{ height: heightPx }}
                         />
                       )}
