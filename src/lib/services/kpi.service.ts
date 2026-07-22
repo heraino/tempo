@@ -54,6 +54,11 @@ export async function getKpiSnapshot(userId: string): Promise<KpiSnapshot> {
       sessionKindOverride: workoutLogs.sessionKindOverride,
       observedSessionKind: workoutLogs.observedSessionKind,
       laps: workoutLogs.laps,
+      avgVerticalOscillationMm: workoutLogs.avgVerticalOscillationMm,
+      avgStanceTimeMs: workoutLogs.avgStanceTimeMs,
+      avgStanceTimePct: workoutLogs.avgStanceTimePct,
+      avgVerticalRatio: workoutLogs.avgVerticalRatio,
+      avgStrideLengthM: workoutLogs.avgStrideLengthM,
     })
     .from(workoutLogs)
     .where(eq(workoutLogs.userId, userId))

@@ -16,6 +16,12 @@ export interface WorkoutForKpi {
   qualityCadence?: number | null
   qualityAvgHr?: number | null
   qualityMaxHr?: number | null
+  // Running dynamics (Garmin-specific; optional — may be null for non-GPS watches)
+  avgVerticalOscillationMm?: number | null
+  avgStanceTimeMs?: number | null
+  avgStanceTimePct?: number | null
+  avgVerticalRatio?: number | null
+  avgStrideLengthM?: number | null
 }
 
 export interface KpiSnapshot {
@@ -34,6 +40,12 @@ export interface KpiSnapshot {
   cadenceTempo: number | null
   cadenceTempoPrev: number | null
   recentWorkoutCount: number
+  // Running dynamics (from most recent workout that recorded them)
+  vertOscMm: number | null
+  stanceTimeMs: number | null
+  stanceTimePct: number | null
+  vertRatio: number | null
+  strideLengthM: number | null
 }
 
 export function computeKpiSnapshot(
@@ -102,6 +114,11 @@ export function computeKpiSnapshot(
       ? resolveSpeedMps(prevThreshold?.avgSpeedMps ?? null, prevThreshold?.totalDistanceM ?? null, prevThreshold?.totalTimerSecs ?? null)
       : null)
 
+  // Most recent workout that recorded Garmin running dynamics
+  const lastWithDynamics = sorted.find(
+    (w) => w.avgVerticalOscillationMm != null || w.avgStanceTimeMs != null || w.avgVerticalRatio != null
+  )
+
   return {
     weeklyMileage: weeklyM > 0 ? weeklyM : null,
     easyPaceAt140Mps,
@@ -118,5 +135,10 @@ export function computeKpiSnapshot(
     cadenceTempo: lastTempo?.qualityCadence ?? lastTempo?.avgCadence ?? null,
     cadenceTempoPrev: prevTempo?.qualityCadence ?? prevTempo?.avgCadence ?? null,
     recentWorkoutCount: workouts.length,
+    vertOscMm: lastWithDynamics?.avgVerticalOscillationMm ?? null,
+    stanceTimeMs: lastWithDynamics?.avgStanceTimeMs ?? null,
+    stanceTimePct: lastWithDynamics?.avgStanceTimePct ?? null,
+    vertRatio: lastWithDynamics?.avgVerticalRatio ?? null,
+    strideLengthM: lastWithDynamics?.avgStrideLengthM ?? null,
   }
 }

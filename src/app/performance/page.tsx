@@ -292,8 +292,11 @@ export default async function PerformancePage() {
 
         {/* System 4: Running Economy */}
         <Section eyebrow="System 4 · 5% weight" title="Running Economy">
-          {cadenceEasySpm != null || cadenceTempoSpm != null ? (
+          {cadenceEasySpm == null && cadenceTempoSpm == null && kpis.vertOscMm == null ? (
+            <p className="text-sm text-gray-400">No economy data yet. Upload workouts from a GPS watch to see these metrics.</p>
+          ) : (
             <>
+              {/* Cadence */}
               {cadenceEasySpm != null && (
                 <StatRow
                   label="Cadence — easy runs"
@@ -310,20 +313,65 @@ export default async function PerformancePage() {
                   highlight={cadenceTempoSpm >= 172 ? "good" : cadenceTempoSpm < 160 ? "warn" : undefined}
                 />
               )}
+
+              {/* Running dynamics (Garmin) */}
+              {kpis.vertOscMm != null && (
+                <StatRow
+                  label="Vertical oscillation"
+                  value={`${kpis.vertOscMm.toFixed(1)} mm`}
+                  sub="Lower = less wasted vertical energy"
+                  highlight={kpis.vertOscMm < 70 ? "good" : kpis.vertOscMm > 85 ? "warn" : undefined}
+                />
+              )}
+              {kpis.stanceTimeMs != null && (
+                <StatRow
+                  label="Ground contact time"
+                  value={`${Math.round(kpis.stanceTimeMs)} ms`}
+                  sub="Lower = more elastic, less braking"
+                  highlight={kpis.stanceTimeMs < 220 ? "good" : kpis.stanceTimeMs > 260 ? "warn" : undefined}
+                />
+              )}
+              {kpis.vertRatio != null && (
+                <StatRow
+                  label="Vertical ratio"
+                  value={`${kpis.vertRatio.toFixed(1)}%`}
+                  sub="Oscillation / stride length — lower is better"
+                  highlight={kpis.vertRatio < 8 ? "good" : kpis.vertRatio > 10 ? "warn" : undefined}
+                />
+              )}
+              {kpis.strideLengthM != null && (
+                <StatRow
+                  label="Stride length"
+                  value={`${kpis.strideLengthM.toFixed(2)} m`}
+                  sub="Session average"
+                />
+              )}
             </>
-          ) : (
-            <p className="text-sm text-gray-400">No cadence data yet. Upload workouts from a GPS watch to see economy metrics.</p>
           )}
 
-          <div className="mt-4 pt-3 border-t border-gray-50">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Cadence benchmarks</p>
-            <div className="flex flex-wrap gap-3 text-[11px]">
-              <span className="text-gray-500">Floor: <span className="font-semibold text-gray-700">150 spm</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">Good: <span className="font-semibold text-gray-700">160–170 spm</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">Optimal: <span className="font-semibold text-gray-700">172+ spm</span></span>
+          <div className="mt-4 pt-3 border-t border-gray-50 space-y-2">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Cadence benchmarks</p>
+              <div className="flex flex-wrap gap-3 text-[11px]">
+                <span className="text-gray-500">Floor: <span className="font-semibold text-gray-700">150 spm</span></span>
+                <span className="text-gray-300">·</span>
+                <span className="text-gray-500">Good: <span className="font-semibold text-gray-700">160–170 spm</span></span>
+                <span className="text-gray-300">·</span>
+                <span className="text-gray-500">Optimal: <span className="font-semibold text-gray-700">172+ spm</span></span>
+              </div>
             </div>
+            {kpis.vertOscMm != null && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Running dynamics benchmarks</p>
+                <div className="flex flex-wrap gap-3 text-[11px]">
+                  <span className="text-gray-500">Osc: <span className="font-semibold text-gray-700">&lt;70mm good</span></span>
+                  <span className="text-gray-300">·</span>
+                  <span className="text-gray-500">GCT: <span className="font-semibold text-gray-700">&lt;220ms good</span></span>
+                  <span className="text-gray-300">·</span>
+                  <span className="text-gray-500">Vert ratio: <span className="font-semibold text-gray-700">&lt;8% good</span></span>
+                </div>
+              </div>
+            )}
           </div>
         </Section>
 
