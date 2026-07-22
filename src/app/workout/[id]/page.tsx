@@ -159,7 +159,7 @@ export default async function WorkoutDetailPage({
     db
       .select({ responseParsed: coachingAnalyses.responseParsed })
       .from(coachingAnalyses)
-      .where(eq(coachingAnalyses.workoutLogId, id))
+      .where(and(eq(coachingAnalyses.workoutLogId, id), eq(coachingAnalyses.analysisType, "workout")))
       .orderBy(desc(coachingAnalyses.createdAt))
       .limit(1),
   ])
