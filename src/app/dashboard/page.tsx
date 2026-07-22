@@ -3,10 +3,12 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
 import { workoutLogs, coachingAnalyses } from "@/lib/db/schema"
-import { eq, desc, and } from "drizzle-orm"
+import { eq, desc, and, gte, asc } from "drizzle-orm"
 import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.service"
 import { resolveLocalDate } from "@/lib/plan/localDate"
 import { RecentWorkoutsCard } from "@/components/RecentWorkoutsCard"
+import { TrendCharts } from "@/components/TrendCharts"
+import type { WeekBucket, PacePoint, ReadinessPoint } from "@/components/TrendCharts"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
 import { computeReadiness } from "@/lib/analytics/readiness"
@@ -84,7 +86,9 @@ export default async function DashboardPage() {
   const tz = await getAthleteTimezone(userId)
   const todayStr = resolveLocalDate(tz)
 
-  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook] = await Promise.all([
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+
+  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook, trendWorkouts] = await Promise.all([
     getScheduleRange(userId, todayStr, 8),
     db
       .select({
@@ -112,7 +116,7 @@ export default async function DashboardPage() {
         eq(coachingAnalyses.analysisType, "readiness_snapshot"),
       ))
       .orderBy(desc(coachingAnalyses.createdAt))
-      .limit(2),
+      .limit(20),
     db
       .select({ responseParsed: coachingAnalyses.responseParsed, createdAt: coachingAnalyses.createdAt })
       .from(coachingAnalyses)
@@ -122,6 +126,17 @@ export default async function DashboardPage() {
       ))
       .orderBy(desc(coachingAnalyses.createdAt))
       .limit(1),
+    db
+      .select({
+        startTime: workoutLogs.startTime,
+        totalDistanceM: workoutLogs.totalDistanceM,
+        avgSpeedMps: workoutLogs.avgSpeedMps,
+        observedSessionKind: workoutLogs.observedSessionKind,
+        sessionKindOverride: workoutLogs.sessionKindOverride,
+      })
+      .from(workoutLogs)
+      .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, ninetyDaysAgo)))
+      .orderBy(asc(workoutLogs.startTime)),
   ])
 
   if (!scheduleResult) redirect("/onboarding")
@@ -162,6 +177,61 @@ export default async function DashboardPage() {
   const notebook = latestNotebook[0]?.responseParsed
     ? (latestNotebook[0].responseParsed as NotebookEntry)
     : null
+
+  // Build trend chart data
+  function weekStartKey(d: Date): string {
+    const date = new Date(d)
+    const day = date.getUTCDay()
+    date.setUTCDate(date.getUTCDate() + (day === 0 ? -6 : 1 - day))
+    date.setUTCHours(0, 0, 0, 0)
+    return date.toISOString().slice(0, 10)
+  }
+
+  // Generate last 8 week buckets (oldest → newest)
+  const now = new Date()
+  const weekBuckets = new Map<string, WeekBucket>()
+  for (let i = 7; i >= 0; i--) {
+    const ws = new Date(now)
+    const day = ws.getUTCDay()
+    ws.setUTCDate(ws.getUTCDate() + (day === 0 ? -6 : 1 - day) - i * 7)
+    ws.setUTCHours(0, 0, 0, 0)
+    const key = ws.toISOString().slice(0, 10)
+    const label = ws.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    weekBuckets.set(key, { week: label, miles: 0 })
+  }
+  for (const w of trendWorkouts) {
+    if (!w.totalDistanceM || !w.startTime) continue
+    const key = weekStartKey(new Date(w.startTime))
+    const bucket = weekBuckets.get(key)
+    if (bucket) bucket.miles = Math.round((bucket.miles + w.totalDistanceM / 1609.344) * 10) / 10
+  }
+  const weeklyMileageData: WeekBucket[] = Array.from(weekBuckets.values())
+
+  // Easy + long runs for pace trend (last 15)
+  const EASY_KINDS = new Set(["easy", "long", "recovery"])
+  const paceTrendData: PacePoint[] = trendWorkouts
+    .filter((w) => {
+      const kind = w.sessionKindOverride ?? w.observedSessionKind
+      return kind && EASY_KINDS.has(kind) && w.avgSpeedMps && w.avgSpeedMps > 0.5
+    })
+    .slice(-15)
+    .map((w) => ({
+      date: new Date(w.startTime!).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+      paceDecimal: Math.round((1609.344 / w.avgSpeedMps! / 60) * 100) / 100,
+    }))
+
+  // Readiness score over time (oldest → newest)
+  const readinessTrendData: ReadinessPoint[] = recentSnapshots
+    .slice()
+    .reverse()
+    .flatMap((s) => {
+      const p = s.responseParsed as Record<string, unknown> | null
+      if (!p || typeof p.total !== "number" || !s.createdAt) return []
+      return [{
+        date: new Date(s.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+        score: p.total,
+      }]
+    })
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
@@ -538,6 +608,13 @@ export default async function DashboardPage() {
             </section>
           )
         })()}
+
+        {/* Training trends */}
+        <TrendCharts
+          weeklyMileage={weeklyMileageData}
+          paceTrend={paceTrendData}
+          readinessTrend={readinessTrendData}
+        />
 
         {/* Recent workouts */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
