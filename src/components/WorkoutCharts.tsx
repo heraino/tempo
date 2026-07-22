@@ -113,8 +113,10 @@ function ChartPanel({
           border: "1px solid #E5E7EB",
           borderRadius: 8,
           fontSize: 12,
+          padding: "6px 10px",
           boxShadow: "0 2px 8px rgba(0,0,0,.08)",
         }}
+        cursor={{ stroke: "#F3F4F6", strokeWidth: 1 }}
         labelFormatter={(v) => fmtElapsed(Number(v))}
         formatter={(v) => [tooltipFmt(Number(v)), title]}
       />
@@ -125,6 +127,7 @@ function ChartPanel({
         strokeWidth={1.5}
         fill={gradientId ? `url(#${gradientId})` : "transparent"}
         dot={false}
+        activeDot={{ r: 4, fill: color, strokeWidth: 2, stroke: "#fff" }}
         connectNulls={false}
         isAnimationActive={false}
       />
@@ -154,8 +157,10 @@ function ChartPanel({
           border: "1px solid #E5E7EB",
           borderRadius: 8,
           fontSize: 12,
+          padding: "6px 10px",
           boxShadow: "0 2px 8px rgba(0,0,0,.08)",
         }}
+        cursor={{ stroke: "#F3F4F6", strokeWidth: 1 }}
         labelFormatter={(v) => fmtElapsed(Number(v))}
         formatter={(v) => [tooltipFmt(Number(v)), title]}
       />
@@ -165,6 +170,7 @@ function ChartPanel({
         stroke={color}
         strokeWidth={1.5}
         dot={false}
+        activeDot={{ r: 4, fill: color, strokeWidth: 2, stroke: "#fff" }}
         connectNulls={false}
         isAnimationActive={false}
       />

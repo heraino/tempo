@@ -8,7 +8,7 @@ import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.servic
 import { resolveLocalDate } from "@/lib/plan/localDate"
 import { RecentWorkoutsCard } from "@/components/RecentWorkoutsCard"
 import { TrendCharts } from "@/components/TrendCharts"
-import type { WeekBucket, PacePoint, ReadinessPoint } from "@/components/TrendCharts"
+import type { PacePoint, ReadinessPoint } from "@/components/TrendCharts"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
 import { computeReadiness } from "@/lib/analytics/readiness"
@@ -177,35 +177,6 @@ export default async function DashboardPage() {
   const notebook = latestNotebook[0]?.responseParsed
     ? (latestNotebook[0].responseParsed as NotebookEntry)
     : null
-
-  // Build trend chart data
-  function weekStartKey(d: Date): string {
-    const date = new Date(d)
-    const day = date.getUTCDay()
-    date.setUTCDate(date.getUTCDate() + (day === 0 ? -6 : 1 - day))
-    date.setUTCHours(0, 0, 0, 0)
-    return date.toISOString().slice(0, 10)
-  }
-
-  // Generate last 8 week buckets (oldest → newest)
-  const now = new Date()
-  const weekBuckets = new Map<string, WeekBucket>()
-  for (let i = 7; i >= 0; i--) {
-    const ws = new Date(now)
-    const day = ws.getUTCDay()
-    ws.setUTCDate(ws.getUTCDate() + (day === 0 ? -6 : 1 - day) - i * 7)
-    ws.setUTCHours(0, 0, 0, 0)
-    const key = ws.toISOString().slice(0, 10)
-    const label = ws.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-    weekBuckets.set(key, { week: label, miles: 0 })
-  }
-  for (const w of trendWorkouts) {
-    if (!w.totalDistanceM || !w.startTime) continue
-    const key = weekStartKey(new Date(w.startTime))
-    const bucket = weekBuckets.get(key)
-    if (bucket) bucket.miles = Math.round((bucket.miles + w.totalDistanceM / 1609.344) * 10) / 10
-  }
-  const weeklyMileageData: WeekBucket[] = Array.from(weekBuckets.values())
 
   // Easy + long runs for pace trend (last 15)
   const EASY_KINDS = new Set(["easy", "long", "recovery"])
@@ -611,7 +582,6 @@ export default async function DashboardPage() {
 
         {/* Training trends */}
         <TrendCharts
-          weeklyMileage={weeklyMileageData}
           paceTrend={paceTrendData}
           readinessTrend={readinessTrendData}
         />
