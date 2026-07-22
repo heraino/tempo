@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
-import { eq, desc, and, or, isNull } from "drizzle-orm"
+import { eq, desc, asc, and, or, isNull, gte } from "drizzle-orm"
 import { fmtPace, fmtDistance, fmtDuration, fmtDate, resolveSpeedMps } from "@/lib/fmt"
 
 const KIND_LABELS: Record<string, string> = {
@@ -54,8 +54,9 @@ export default async function HistoryPage({
     )
   }
 
-  const rows = await db
-    .select({
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+  const [rows, trendRows] = await Promise.all([
+    db.select({
       id: workoutLogs.id,
       startTime: workoutLogs.startTime,
       sport: workoutLogs.sport,
@@ -70,12 +71,48 @@ export default async function HistoryPage({
     })
     .from(workoutLogs)
     .where(and(...conditions))
-    .orderBy(desc(workoutLogs.startTime))
-    .limit(PAGE_SIZE + 1)
-    .offset((page - 1) * PAGE_SIZE)
+      .orderBy(desc(workoutLogs.startTime))
+      .limit(PAGE_SIZE + 1)
+      .offset((page - 1) * PAGE_SIZE),
+    db
+      .select({ startTime: workoutLogs.startTime, totalDistanceM: workoutLogs.totalDistanceM })
+      .from(workoutLogs)
+      .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, ninetyDaysAgo)))
+      .orderBy(asc(workoutLogs.startTime)),
+  ])
 
   const hasNext = rows.length > PAGE_SIZE
   const workouts = rows.slice(0, PAGE_SIZE)
+
+  // Weekly mileage buckets — last 12 weeks
+  function weekStartKey(d: Date): string {
+    const date = new Date(d)
+    const day = date.getUTCDay()
+    date.setUTCDate(date.getUTCDate() + (day === 0 ? -6 : 1 - day))
+    date.setUTCHours(0, 0, 0, 0)
+    return date.toISOString().slice(0, 10)
+  }
+  const now = new Date()
+  const weekBuckets = new Map<string, { label: string; miles: number }>()
+  for (let i = 11; i >= 0; i--) {
+    const ws = new Date(now)
+    const day = ws.getUTCDay()
+    ws.setUTCDate(ws.getUTCDate() + (day === 0 ? -6 : 1 - day) - i * 7)
+    ws.setUTCHours(0, 0, 0, 0)
+    const key = ws.toISOString().slice(0, 10)
+    const label = ws.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    weekBuckets.set(key, { label, miles: 0 })
+  }
+  for (const w of trendRows) {
+    if (!w.totalDistanceM || !w.startTime) continue
+    const key = weekStartKey(new Date(w.startTime))
+    const bucket = weekBuckets.get(key)
+    if (bucket) bucket.miles += w.totalDistanceM / 1609.344
+  }
+  const weeklyBuckets = Array.from(weekBuckets.values())
+  const maxMiles = Math.max(...weeklyBuckets.map((b) => b.miles), 1)
+  const totalMilesThisWeek = weeklyBuckets[weeklyBuckets.length - 1]?.miles ?? 0
+  const totalMilesLastWeek = weeklyBuckets[weeklyBuckets.length - 2]?.miles ?? 0
 
   function makeUrl(newKind: string, newPage: number) {
     const params = new URLSearchParams()
@@ -92,7 +129,9 @@ export default async function HistoryPage({
         {/* Header */}
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Workout history</h1>
-          <p className="text-sm text-gray-400 mt-0.5">{workouts.length} workouts shown</p>
+          <p className="text-sm text-gray-400 mt-0.5">
+            {kind === "all" ? `${workouts.length}${hasNext ? "+" : ""} workouts` : `${workouts.length}${hasNext ? "+" : ""} ${KIND_LABELS[kind] ?? kind} workouts`}
+          </p>
         </div>
 
         {/* Kind filter */}
@@ -111,6 +150,42 @@ export default async function HistoryPage({
             </Link>
           ))}
         </div>
+
+        {/* Weekly mileage strip */}
+        {trendRows.length > 0 && (
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 pt-4 pb-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Weekly mileage</p>
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <span>This week: <span className="font-semibold text-gray-800">{totalMilesThisWeek.toFixed(1)} mi</span></span>
+                <span className="text-gray-200">·</span>
+                <span>Last week: <span className="font-semibold text-gray-800">{totalMilesLastWeek.toFixed(1)} mi</span></span>
+              </div>
+            </div>
+            <div className="flex items-end gap-1">
+              {weeklyBuckets.map(({ label, miles }) => {
+                const heightPx = Math.round((miles / maxMiles) * 48)
+                const isCurrentWeek = weeklyBuckets[weeklyBuckets.length - 1]?.label === label
+                return (
+                  <div key={label} className="flex-1 flex flex-col items-center gap-1">
+                    <span className="text-[8px] text-gray-400 tabular-nums h-3 leading-3">
+                      {miles > 0 ? miles.toFixed(0) : ""}
+                    </span>
+                    <div className="w-full flex flex-col justify-end rounded-t-sm" style={{ height: 48 }}>
+                      {heightPx > 0 && (
+                        <div
+                          className={`w-full rounded-t-sm ${isCurrentWeek ? "bg-orange-500" : "bg-orange-200"}`}
+                          style={{ height: heightPx }}
+                        />
+                      )}
+                    </div>
+                    <span className="text-[7px] text-gray-400 text-center leading-tight">{label}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Workout list */}
         {workouts.length === 0 ? (
