@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { upload } from "@vercel/blob/client"
 import Link from "next/link"
+
+const CHUNK_SIZE = 2 * 1024 * 1024 // 2 MB per chunk — well under Vercel's 4.5 MB body limit
 
 type Phase = "idle" | "uploading" | "processing" | "done" | "error"
 
@@ -13,6 +14,18 @@ interface Result {
   failedFiles: number
   wellnessDays: number
   errors: string[]
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      resolve(dataUrl.slice(dataUrl.indexOf(",") + 1))
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
 }
 
 export default function GarminImportPage() {
@@ -33,16 +46,28 @@ export default function GarminImportPage() {
     setErrorMsg(null)
     setResult(null)
 
-    let blobUrl: string
+    // Split file into 2 MB chunks and upload each to /api/import/garmin/chunk
+    const uploadId = crypto.randomUUID()
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
+
     try {
-      const blob = await upload(file.name, file, {
-        access: "public",
-        handleUploadUrl: "/api/blob-upload",
-        onUploadProgress: ({ loaded, total }) => {
-          setUploadPct(Math.round((loaded / total) * 100))
-        },
-      })
-      blobUrl = blob.url
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
+        const data = await blobToBase64(chunk)
+
+        const res = await fetch("/api/import/garmin/chunk", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ uploadId, chunkIndex: i, totalChunks, data }),
+        })
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.error ?? `Chunk ${i + 1} upload failed`)
+        }
+
+        setUploadPct(Math.round(((i + 1) / totalChunks) * 100))
+      }
     } catch (err) {
       setPhase("error")
       setErrorMsg(`Upload failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -55,7 +80,7 @@ export default function GarminImportPage() {
       const res = await fetch("/api/import/garmin", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ blobUrl }),
+        body: JSON.stringify({ uploadId }),
       })
       const data = await res.json()
       if (!res.ok) {

@@ -483,6 +483,24 @@ export const dailyWellness = pgTable(
   (t) => [unique().on(t.userId, t.calendarDate)],
 )
 
+// ─── Chunked upload buffer ────────────────────────────────────────────────────
+// Temporary storage for large file uploads (e.g. Garmin export zip).
+// Client splits the file into 2 MB chunks; each chunk lands here.
+// The import route assembles and deletes after processing.
+
+export const importChunk = pgTable(
+  "import_chunk",
+  {
+    uploadId: text("upload_id").notNull(),
+    chunkIndex: integer("chunk_index").notNull(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    totalChunks: integer("total_chunks").notNull(),
+    chunkData: text("chunk_data").notNull(), // base64-encoded binary
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.uploadId, t.chunkIndex] })],
+)
+
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 // Background processing queue backed by the database. Used for async FIT
 // parsing, coaching analysis, schedule generation, and similar tasks.

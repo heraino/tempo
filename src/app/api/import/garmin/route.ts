@@ -17,11 +17,11 @@ import { createWorkout } from "@/lib/services/workout.service"
 import { PARSER_VERSION } from "@/lib/fit/parser"
 import { parseWellnessJson, mergeWellnessDays } from "@/lib/fit/garmin-wellness"
 import { upsertWellnessDays } from "@/lib/services/wellness.service"
+import { importChunk } from "@/lib/db/schema"
 
 export const maxDuration = 300
 
 type ImportPayload = {
-  blobUrl: string
   totalFiles: number
   processedFiles: number
   skippedFiles: number
@@ -39,11 +39,13 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}))
   const blobUrl = typeof body.blobUrl === "string" ? body.blobUrl : null
-  if (!blobUrl) return NextResponse.json({ error: "blobUrl is required" }, { status: 400 })
+  const uploadId = typeof body.uploadId === "string" ? body.uploadId : null
+  if (!blobUrl && !uploadId) {
+    return NextResponse.json({ error: "blobUrl or uploadId is required" }, { status: 400 })
+  }
 
   // Create job record
   const payload: ImportPayload = {
-    blobUrl,
     totalFiles: 0,
     processedFiles: 0,
     skippedFiles: 0,
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
   }).returning()
 
   try {
-    const result = await runImport(userId, job.id, blobUrl)
+    const result = await runImport(userId, job.id, blobUrl ? { blobUrl } : { uploadId: uploadId! })
     await db.update(jobs).set({
       status: "complete",
       payload: result,
@@ -99,11 +101,41 @@ export async function GET(req: NextRequest) {
 
 // ─── Core import logic ────────────────────────────────────────────────────────
 
-async function runImport(userId: string, jobId: string, blobUrl: string): Promise<ImportPayload> {
-  // 1. Fetch the zip from Vercel Blob
-  const res = await fetch(blobUrl)
-  if (!res.ok) throw new Error(`Failed to fetch export file: HTTP ${res.status}`)
-  const zipBuffer = new Uint8Array(await res.arrayBuffer())
+async function runImport(
+  userId: string,
+  jobId: string,
+  source: { blobUrl: string } | { uploadId: string },
+): Promise<ImportPayload> {
+  // 1. Fetch or assemble the zip
+  let zipBuffer: Uint8Array
+
+  if ("blobUrl" in source) {
+    const res = await fetch(source.blobUrl)
+    if (!res.ok) throw new Error(`Failed to fetch export file: HTTP ${res.status}`)
+    zipBuffer = new Uint8Array(await res.arrayBuffer())
+  } else {
+    // Assemble from chunks stored in the database
+    const chunks = await db
+      .select()
+      .from(importChunk)
+      .where(and(eq(importChunk.uploadId, source.uploadId), eq(importChunk.userId, userId)))
+      .orderBy(importChunk.chunkIndex)
+
+    if (chunks.length === 0) throw new Error("No chunks found for this upload. The upload may have expired.")
+
+    const buffers = chunks.map((c) => Buffer.from(c.chunkData, "base64"))
+    const totalLength = buffers.reduce((sum, b) => sum + b.length, 0)
+    const assembled = Buffer.allocUnsafe(totalLength)
+    let offset = 0
+    for (const buf of buffers) {
+      buf.copy(assembled, offset)
+      offset += buf.length
+    }
+    zipBuffer = new Uint8Array(assembled)
+
+    // Clean up chunks now that we've assembled them
+    await db.delete(importChunk).where(eq(importChunk.uploadId, source.uploadId)).catch(() => null)
+  }
 
   // 2. Recursively extract .fit files and wellness JSON files
   const { fitFiles, wellnessFiles } = extractExportFiles(zipBuffer)
@@ -112,7 +144,6 @@ async function runImport(userId: string, jobId: string, blobUrl: string): Promis
   }
 
   const payload: ImportPayload = {
-    blobUrl,
     totalFiles: fitFiles.length,
     processedFiles: 0,
     skippedFiles: 0,
