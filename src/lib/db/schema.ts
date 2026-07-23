@@ -427,6 +427,62 @@ export const userPreferences = pgTable("user_preferences", {
   updatedAt: timestamp("updated_at").defaultNow(),
 })
 
+// ─── Daily wellness (imported from Garmin or entered manually) ───────────────
+
+export const dailyWellness = pgTable(
+  "daily_wellness",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    calendarDate: date("calendar_date").notNull(),
+    source: text("source").notNull().default("garmin"),
+
+    // Activity
+    totalSteps: integer("total_steps"),
+    totalDistanceMeters: real("total_distance_meters"),
+    activeCalories: integer("active_calories"),
+    totalCalories: integer("total_calories"),
+
+    // Stress
+    avgStressLevel: integer("avg_stress_level"),
+    maxStressLevel: integer("max_stress_level"),
+
+    // Body Battery (Garmin's recovery/energy metric)
+    bodyBatteryHigh: integer("body_battery_high"),
+    bodyBatteryLow: integer("body_battery_low"),
+    bodyBatteryLatest: integer("body_battery_latest"),
+
+    // Heart rate
+    restingHr: integer("resting_hr"),
+    avgWakingHr: integer("avg_waking_hr"),
+    minHr: integer("min_hr"),
+    maxHr: integer("max_hr"),
+
+    // HRV (Heart Rate Variability — key readiness metric)
+    hrvLastNightAvg: real("hrv_last_night_avg"),
+    hrv5MinHigh: real("hrv_5min_high"),
+    hrvWeeklyAvg: real("hrv_weekly_avg"),
+    hrvStatus: text("hrv_status"), // BALANCED | UNBALANCED | LOW | POOR
+
+    // Sleep
+    sleepDurationSecs: integer("sleep_duration_secs"),
+    sleepDeepSecs: integer("sleep_deep_secs"),
+    sleepLightSecs: integer("sleep_light_secs"),
+    sleepRemSecs: integer("sleep_rem_secs"),
+    sleepScore: integer("sleep_score"),
+    sleepWindowStart: timestamp("sleep_window_start"),
+    sleepWindowEnd: timestamp("sleep_window_end"),
+
+    // Pulse-ox & respiration
+    avgSpo2: real("avg_spo2"),
+    avgRespiration: real("avg_respiration"),
+
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.calendarDate)],
+)
+
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 // Background processing queue backed by the database. Used for async FIT
 // parsing, coaching analysis, schedule generation, and similar tasks.

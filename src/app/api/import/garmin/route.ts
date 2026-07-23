@@ -15,6 +15,8 @@ import {
 } from "@/lib/services/fitFile.service"
 import { createWorkout } from "@/lib/services/workout.service"
 import { PARSER_VERSION } from "@/lib/fit/parser"
+import { parseWellnessJson, mergeWellnessDays } from "@/lib/fit/garmin-wellness"
+import { upsertWellnessDays } from "@/lib/services/wellness.service"
 
 export const maxDuration = 300
 
@@ -24,6 +26,7 @@ type ImportPayload = {
   processedFiles: number
   skippedFiles: number
   failedFiles: number
+  wellnessDays: number
   errors: string[]
 }
 
@@ -45,6 +48,7 @@ export async function POST(req: NextRequest) {
     processedFiles: 0,
     skippedFiles: 0,
     failedFiles: 0,
+    wellnessDays: 0,
     errors: [],
   }
   const [job] = await db.insert(jobs).values({
@@ -101,10 +105,10 @@ async function runImport(userId: string, jobId: string, blobUrl: string): Promis
   if (!res.ok) throw new Error(`Failed to fetch export file: HTTP ${res.status}`)
   const zipBuffer = new Uint8Array(await res.arrayBuffer())
 
-  // 2. Recursively extract all .fit files (handles Garmin's nested zip structure)
-  const fitFiles = extractFitFiles(zipBuffer)
-  if (fitFiles.length === 0) {
-    throw new Error("No .fit files found in the export. Make sure you're uploading your full Garmin Connect data export zip.")
+  // 2. Recursively extract .fit files and wellness JSON files
+  const { fitFiles, wellnessFiles } = extractExportFiles(zipBuffer)
+  if (fitFiles.length === 0 && wellnessFiles.length === 0) {
+    throw new Error("No .fit or wellness JSON files found in the export. Make sure you're uploading your full Garmin Connect data export zip.")
   }
 
   const payload: ImportPayload = {
@@ -113,6 +117,7 @@ async function runImport(userId: string, jobId: string, blobUrl: string): Promis
     processedFiles: 0,
     skippedFiles: 0,
     failedFiles: 0,
+    wellnessDays: 0,
     errors: [],
   }
 
@@ -235,25 +240,65 @@ async function runImport(userId: string, jobId: string, blobUrl: string): Promis
     }
   }
 
+  // 4. Process wellness JSON files (HRV, sleep, stress, steps, body battery)
+  if (wellnessFiles.length > 0) {
+    try {
+      const allDays: import("@/lib/fit/garmin-wellness").WellnessDay[] = []
+      for (const { data } of wellnessFiles) {
+        try {
+          const text = new TextDecoder().decode(data)
+          const raw = JSON.parse(text)
+          const parsed = parseWellnessJson(raw)
+          allDays.push(...parsed)
+        } catch {
+          // Skip malformed JSON files silently
+        }
+      }
+
+      if (allDays.length > 0) {
+        const merged = mergeWellnessDays(allDays)
+        const { inserted } = await upsertWellnessDays(userId, [...merged.values()])
+        payload.wellnessDays = inserted
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      payload.errors.push(`Wellness import error: ${msg.slice(0, 120)}`)
+    }
+  }
+
   return payload
 }
 
 // ─── Zip extraction ───────────────────────────────────────────────────────────
 
-function extractFitFiles(
+// Wellness JSON paths contain one of these path segments in Garmin exports
+const WELLNESS_PATH_PATTERNS = [
+  "di-connect-journal",
+  "di-connect-fitness-extras",
+  "wellness",
+  "health",
+  "sleep",
+  "hrv",
+]
+
+function extractExportFiles(
   zipData: Uint8Array,
   depth = 0,
-): Array<{ name: string; data: Uint8Array }> {
-  if (depth > 3) return [] // guard against pathological nesting
+): {
+  fitFiles: Array<{ name: string; data: Uint8Array }>
+  wellnessFiles: Array<{ name: string; data: Uint8Array }>
+} {
+  if (depth > 3) return { fitFiles: [], wellnessFiles: [] }
 
   let entries: Record<string, Uint8Array>
   try {
     entries = unzipSync(zipData)
   } catch {
-    return []
+    return { fitFiles: [], wellnessFiles: [] }
   }
 
-  const results: Array<{ name: string; data: Uint8Array }> = []
+  const fitFiles: Array<{ name: string; data: Uint8Array }> = []
+  const wellnessFiles: Array<{ name: string; data: Uint8Array }> = []
 
   for (const [path, data] of Object.entries(entries)) {
     const lower = path.toLowerCase()
@@ -262,13 +307,19 @@ function extractFitFiles(
 
     if (lower.endsWith(".fit")) {
       const name = path.split("/").pop() ?? path
-      results.push({ name, data })
+      fitFiles.push({ name, data })
     } else if (lower.endsWith(".zip")) {
-      // Garmin exports FIT files inside nested zips (ActivitiesUntitledExport-*.zip)
-      const nested = extractFitFiles(data, depth + 1)
-      results.push(...nested)
+      const nested = extractExportFiles(data, depth + 1)
+      fitFiles.push(...nested.fitFiles)
+      wellnessFiles.push(...nested.wellnessFiles)
+    } else if (lower.endsWith(".json")) {
+      const isWellness = WELLNESS_PATH_PATTERNS.some((p) => lower.includes(p))
+      if (isWellness) {
+        const name = path.split("/").pop() ?? path
+        wellnessFiles.push({ name, data })
+      }
     }
   }
 
-  return results
+  return { fitFiles, wellnessFiles }
 }

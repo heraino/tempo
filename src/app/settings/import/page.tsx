@@ -11,6 +11,7 @@ interface Result {
   processedFiles: number
   skippedFiles: number
   failedFiles: number
+  wellnessDays: number
   errors: string[]
 }
 
@@ -67,6 +68,7 @@ export default function GarminImportPage() {
         processedFiles: data.processedFiles,
         skippedFiles: data.skippedFiles,
         failedFiles: data.failedFiles,
+        wellnessDays: data.wellnessDays ?? 0,
         errors: data.errors ?? [],
       })
       setPhase("done")
@@ -198,15 +200,23 @@ export default function GarminImportPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-green-50 px-4 py-3 text-center">
                 <p className="text-2xl font-bold text-green-700">{result.processedFiles}</p>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600 mt-0.5">Imported</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600 mt-0.5">Workouts</p>
               </div>
               <div className="rounded-xl bg-gray-50 px-4 py-3 text-center">
                 <p className="text-2xl font-bold text-gray-500">{result.skippedFiles}</p>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mt-0.5">Skipped</p>
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {result.wellnessDays > 0 && (
+                <div className="rounded-xl bg-blue-50 px-4 py-3 text-center">
+                  <p className="text-2xl font-bold text-blue-700">{result.wellnessDays}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 mt-0.5">Wellness days</p>
+                </div>
+              )}
               <div className={`rounded-xl px-4 py-3 text-center ${result.failedFiles > 0 ? "bg-red-50" : "bg-gray-50"}`}>
                 <p className={`text-2xl font-bold ${result.failedFiles > 0 ? "text-red-600" : "text-gray-400"}`}>{result.failedFiles}</p>
                 <p className={`text-[10px] font-semibold uppercase tracking-wide mt-0.5 ${result.failedFiles > 0 ? "text-red-500" : "text-gray-400"}`}>Failed</p>
