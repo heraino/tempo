@@ -114,20 +114,39 @@ async function runImport(
     if (!res.ok) throw new Error(`Failed to fetch export file: HTTP ${res.status}`)
     zipBuffer = new Uint8Array(await res.arrayBuffer())
   } else {
-    // Assemble from chunks stored in the database
-    const chunks = await db
-      .select()
+    // Assemble from chunks stored in the database.
+    // Neon's HTTP driver has a ~10 MB response limit, so we fetch chunks one
+    // at a time (each ~2.7 MB of base64) rather than in a single SELECT.
+    const [meta] = await db
+      .select({ totalChunks: importChunk.totalChunks })
       .from(importChunk)
       .where(and(eq(importChunk.uploadId, source.uploadId), eq(importChunk.userId, userId)))
-      .orderBy(importChunk.chunkIndex)
+      .limit(1)
 
-    if (chunks.length === 0) throw new Error("No chunks found for this upload. The upload may have expired.")
+    if (!meta) throw new Error("No chunks found for this upload. The upload may have expired.")
 
-    const buffers = chunks.map((c) => Buffer.from(c.chunkData, "base64"))
-    const totalLength = buffers.reduce((sum, b) => sum + b.length, 0)
+    const parts: Buffer[] = []
+    for (let i = 0; i < meta.totalChunks; i++) {
+      const [row] = await db
+        .select({ chunkData: importChunk.chunkData })
+        .from(importChunk)
+        .where(
+          and(
+            eq(importChunk.uploadId, source.uploadId),
+            eq(importChunk.userId, userId),
+            eq(importChunk.chunkIndex, i),
+          ),
+        )
+        .limit(1)
+
+      if (!row) throw new Error(`Upload incomplete: chunk ${i} is missing.`)
+      parts.push(Buffer.from(row.chunkData, "base64"))
+    }
+
+    const totalLength = parts.reduce((sum, b) => sum + b.length, 0)
     const assembled = Buffer.allocUnsafe(totalLength)
     let offset = 0
-    for (const buf of buffers) {
+    for (const buf of parts) {
       buf.copy(assembled, offset)
       offset += buf.length
     }
