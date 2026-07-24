@@ -271,6 +271,7 @@ async function runImport(
           totalDistanceM: parsed.totalDistanceM,
           avgHr: parsed.avgHr,
           sessionKindOverride: null,
+          sport: parsed.sport,
         }),
       })
 

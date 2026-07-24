@@ -2,7 +2,7 @@ import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
 import { eq, desc } from "drizzle-orm"
 import { computeKpiSnapshot, type KpiSnapshot } from "@/lib/analytics/kpis"
-import { heuristicClassify } from "@/lib/analytics/classify"
+import { heuristicClassify, isRunningSport } from "@/lib/analytics/classify"
 
 export type { KpiSnapshot }
 
@@ -51,6 +51,7 @@ export async function getKpiSnapshot(userId: string): Promise<KpiSnapshot> {
       firstHalfAvgHr: workoutLogs.firstHalfAvgHr,
       secondHalfAvgHr: workoutLogs.secondHalfAvgHr,
       avgCadence: workoutLogs.avgCadence,
+      sport: workoutLogs.sport,
       sessionKindOverride: workoutLogs.sessionKindOverride,
       observedSessionKind: workoutLogs.observedSessionKind,
       laps: workoutLogs.laps,
@@ -63,13 +64,17 @@ export async function getKpiSnapshot(userId: string): Promise<KpiSnapshot> {
     .from(workoutLogs)
     .where(eq(workoutLogs.userId, userId))
     .orderBy(desc(workoutLogs.startTime))
-    .limit(30)
+    .limit(80)
 
-  const enriched = rows.map((w) => {
+  // KPIs are running-specific — filter out other sports before computing
+  const runningRows = rows.filter((r) => isRunningSport(r.sport))
+
+  const enriched = runningRows.slice(0, 30).map((w) => {
     const kind = w.sessionKindOverride ?? w.observedSessionKind ?? heuristicClassify({
       totalTimerSecs: w.totalTimerSecs,
       totalDistanceM: w.totalDistanceM,
       avgHr: w.avgHr,
+      sport: w.sport,
     })
     const laps = (w.laps as Record<string, unknown>[] | null) ?? []
     const isQuality = kind === "threshold" || kind === "tempo"

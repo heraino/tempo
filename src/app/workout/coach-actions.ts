@@ -2,8 +2,8 @@
 
 import { auth } from "@/auth"
 import { db } from "@/lib/db"
-import { workoutLogs, coachingAnalyses, athleteContexts } from "@/lib/db/schema"
-import { and, eq, desc } from "drizzle-orm"
+import { workoutLogs, coachingAnalyses, athleteContexts, dailyWellness } from "@/lib/db/schema"
+import { and, eq, desc, gte, lte } from "drizzle-orm"
 import { nebiusChat } from "@/lib/ai/nebius"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { computeReadiness } from "@/lib/analytics/readiness"
@@ -45,6 +45,69 @@ const NotebookSchema = z.object({
 
 export type NotebookEntry = z.infer<typeof NotebookSchema>
 
+async function getWellnessContext(userId: string, workoutDateStr: string) {
+  const sevenDaysAgo = new Date(workoutDateStr)
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10)
+
+  const rows = await db
+    .select({
+      calendarDate: dailyWellness.calendarDate,
+      hrvLastNightAvg: dailyWellness.hrvLastNightAvg,
+      hrvStatus: dailyWellness.hrvStatus,
+      sleepScore: dailyWellness.sleepScore,
+      sleepDurationSecs: dailyWellness.sleepDurationSecs,
+      bodyBatteryHigh: dailyWellness.bodyBatteryHigh,
+      restingHr: dailyWellness.restingHr,
+      avgStressLevel: dailyWellness.avgStressLevel,
+    })
+    .from(dailyWellness)
+    .where(and(
+      eq(dailyWellness.userId, userId),
+      gte(dailyWellness.calendarDate, sevenDaysAgoStr),
+      lte(dailyWellness.calendarDate, workoutDateStr),
+    ))
+    .orderBy(desc(dailyWellness.calendarDate))
+    .limit(8)
+
+  if (rows.length === 0) return null
+
+  // Night-before data: workout date or day prior (HRV measured overnight)
+  const dayBefore = new Date(workoutDateStr)
+  dayBefore.setDate(dayBefore.getDate() - 1)
+  const dayBeforeStr = dayBefore.toISOString().slice(0, 10)
+  const nightBefore = rows.find(
+    (r) => r.calendarDate === workoutDateStr || r.calendarDate === dayBeforeStr,
+  ) ?? null
+
+  const hrvRows = rows.filter((r) => r.hrvLastNightAvg != null)
+  const sleepRows = rows.filter((r) => r.sleepScore != null)
+
+  return {
+    nightBefore: nightBefore
+      ? {
+          hrv: nightBefore.hrvLastNightAvg,
+          hrvStatus: nightBefore.hrvStatus,
+          sleepScore: nightBefore.sleepScore,
+          sleepHours: nightBefore.sleepDurationSecs
+            ? +(nightBefore.sleepDurationSecs / 3600).toFixed(1)
+            : null,
+          bodyBatteryMorning: nightBefore.bodyBatteryHigh,
+          restingHr: nightBefore.restingHr,
+          stressLevel: nightBefore.avgStressLevel,
+        }
+      : null,
+    sevenDayAvg: {
+      hrv: hrvRows.length > 0
+        ? Math.round(hrvRows.reduce((s, r) => s + r.hrvLastNightAvg!, 0) / hrvRows.length)
+        : null,
+      sleepScore: sleepRows.length > 0
+        ? Math.round(sleepRows.reduce((s, r) => s + r.sleepScore!, 0) / sleepRows.length)
+        : null,
+    },
+  }
+}
+
 function mpsToMinPerMile(mps: number | null | undefined): string {
   return fmtPace(mps ?? null)
 }
@@ -53,8 +116,10 @@ async function generateAndSaveNotebook(
   userId: string,
   workoutId: string,
   kpis: Awaited<ReturnType<typeof getKpiSnapshot>>,
+  workoutDateStr: string,
 ): Promise<void> {
   const readiness = computeReadiness(kpis)
+  const wellness = await getWellnessContext(userId, workoutDateStr).catch(() => null)
 
   // Fetch last 5 workout analyses for context
   const recentAnalyses = await db
@@ -99,6 +164,7 @@ async function generateAndSaveNotebook(
       headline: a.headline,
       grade: a.grade,
     })),
+    wellness: wellness ?? undefined,
     goal: {
       event: "half marathon",
       targetPacePerMile: "7:20/mi",
@@ -106,9 +172,9 @@ async function generateAndSaveNotebook(
     },
   }
 
-  const systemPrompt = `You are an experienced running coach keeping a longitudinal notebook on an athlete's trajectory toward a half marathon at 7:20/mile pace by age 50. You receive structured data about their current fitness and recent workout history.
+  const systemPrompt = `You are an experienced running coach keeping a longitudinal notebook on an athlete's trajectory toward a half marathon at 7:20/mile pace by age 50. You receive structured data about their current fitness, recent workout history, and wellness signals (HRV, sleep, body battery).
 
-Write a brief notebook entry that observes patterns and trends — not just today's workout. Think like a coach who has been following this athlete for weeks.
+Write a brief notebook entry that observes patterns and trends — not just today's workout. Think like a coach who has been following this athlete for weeks. When wellness data is present, factor recovery state into your assessment of trajectory and limiters.
 
 Rules:
 - Be specific; cite actual paces, distances, or trends from the data
@@ -243,12 +309,18 @@ export async function generateCoachingAnalysis(workoutId: string): Promise<{
     ? Math.round(ctx.outsideTempC * 9 / 5 + 32)
     : null
 
+  const workoutDateStr = (log.startTime instanceof Date
+    ? log.startTime
+    : new Date(log.startTime as string)
+  ).toISOString().slice(0, 10)
+
+  // Wellness data for the night before / morning of the workout
+  const wellness = await getWellnessContext(userId, workoutDateStr).catch(() => null)
+
   // Build context snapshot
   const contextSnapshot = {
     workout: {
-      date: log.startTime instanceof Date
-        ? log.startTime.toISOString().slice(0, 10)
-        : String(log.startTime).slice(0, 10),
+      date: workoutDateStr,
       kind: kind ?? "unknown",
       sport: log.sport ?? "running",
       fullSession: {
@@ -288,6 +360,7 @@ export async function generateCoachingAnalysis(workoutId: string): Promise<{
           weeklyMileage: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) : null,
         }
       : null,
+    recovery: wellness ?? undefined,
     goal: {
       event: "half marathon",
       targetPacePerMile: "7:20/mi",
@@ -305,6 +378,7 @@ Rules:
 - Never propose structural training-plan changes without flagging them explicitly
 - For threshold/tempo runs, base your grade and interpretation on the quality segment, not whole-session averages
 - Always contextualize elevated HR relative to temperature
+- When recovery data (HRV, sleep, body battery) is present, factor it into interpretation — a strong workout on low HRV/sleep signals is more impressive; a weak workout on good recovery warrants more scrutiny
 - Be specific, honest, and concise
 
 Respond with ONLY a valid JSON object, no markdown, no prose outside the JSON. Use this exact schema:
@@ -410,7 +484,7 @@ Respond with ONLY a valid JSON object, no markdown, no prose outside the JSON. U
     })
 
     // Generate Coach's Notebook (async, non-blocking for the return value)
-    await generateAndSaveNotebook(userId, workoutId, kpis).catch(() => {})
+    await generateAndSaveNotebook(userId, workoutId, kpis, workoutDateStr).catch(() => {})
   }
 
   revalidatePath(`/workout/${workoutId}`)
