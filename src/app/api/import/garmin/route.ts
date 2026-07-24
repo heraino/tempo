@@ -277,10 +277,15 @@ async function runImport(
       await updateFitFileParseStatus(fitFileRecord.id, "parsed").catch(() => null)
       payload.processedFiles++
     } catch (err) {
-      payload.failedFiles++
-      if (payload.errors.length < 30) {
-        const msg = err instanceof Error ? err.message : String(err)
-        payload.errors.push(`${name}: ${msg.slice(0, 120)}`)
+      const msg = err instanceof Error ? err.message : String(err)
+      // Non-workout FIT files (health monitoring, golf, etc.) have no session record — skip silently
+      if (msg.includes("No session found in FIT file")) {
+        payload.skippedFiles++
+      } else {
+        payload.failedFiles++
+        if (payload.errors.length < 30) {
+          payload.errors.push(`${name}: ${msg.slice(0, 120)}`)
+        }
       }
     }
 
