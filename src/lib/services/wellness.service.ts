@@ -10,7 +10,7 @@ export async function upsertWellnessDays(
   if (days.length === 0) return { inserted: 0, updated: 0 }
 
   let inserted = 0
-  let updated = 0
+  const updated = 0
 
   // Batch in chunks to avoid hitting parameter limits
   const CHUNK = 50

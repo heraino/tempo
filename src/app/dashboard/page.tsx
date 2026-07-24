@@ -2,8 +2,8 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { db } from "@/lib/db"
-import { workoutLogs, coachingAnalyses } from "@/lib/db/schema"
-import { eq, desc, and, gte, asc } from "drizzle-orm"
+import { workoutLogs, coachingAnalyses, dailyWellness } from "@/lib/db/schema"
+import { eq, desc, and, gte, asc, lte } from "drizzle-orm"
 import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.service"
 import { resolveLocalDate } from "@/lib/plan/localDate"
 import { RecentWorkoutsCard } from "@/components/RecentWorkoutsCard"
@@ -12,6 +12,7 @@ import type { PacePoint, ReadinessPoint } from "@/components/TrendCharts"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
 import { computeReadiness } from "@/lib/analytics/readiness"
+import { computePerformance } from "@/lib/analytics/performance"
 import type { NotebookEntry } from "@/app/workout/coach-actions"
 
 function KpiCard({
@@ -88,7 +89,9 @@ export default async function DashboardPage() {
 
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
 
-  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook, trendWorkouts] = await Promise.all([
+  const sevenDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook, trendWorkouts, wellnessRows, perf] = await Promise.all([
     getScheduleRange(userId, todayStr, 8),
     db
       .select({
@@ -137,6 +140,33 @@ export default async function DashboardPage() {
       .from(workoutLogs)
       .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, ninetyDaysAgo)))
       .orderBy(asc(workoutLogs.startTime)),
+    // Last 8 days of wellness for readiness freshness modifier
+    db
+      .select({
+        calendarDate: dailyWellness.calendarDate,
+        hrvLastNightAvg: dailyWellness.hrvLastNightAvg,
+        hrvWeeklyAvg: dailyWellness.hrvWeeklyAvg,
+        sleepScore: dailyWellness.sleepScore,
+        bodyBatteryHigh: dailyWellness.bodyBatteryHigh,
+      })
+      .from(dailyWellness)
+      .where(
+        and(
+          eq(dailyWellness.userId, userId),
+          gte(dailyWellness.calendarDate, sevenDaysAgoStr),
+          lte(dailyWellness.calendarDate, todayStr),
+        )
+      )
+      .orderBy(desc(dailyWellness.calendarDate))
+      .limit(8)
+      .catch(() => [] as Array<{
+        calendarDate: string
+        hrvLastNightAvg: number | null
+        hrvWeeklyAvg: number | null
+        sleepScore: number | null
+        bodyBatteryHigh: number | null
+      }>),
+    computePerformance(userId).catch(() => ({ ctl: null, atl: null, tsb: null })),
   ])
 
   if (!scheduleResult) redirect("/onboarding")
@@ -152,6 +182,21 @@ export default async function DashboardPage() {
   const todaySessionSummary = todayDay && !todayDay.isRestDay && todayDay.sessions.length > 0
     ? todayDay.sessions.map((s) => s.label).join(" + ")
     : null
+
+  // Build wellness context for the readiness freshness modifier
+  // wellnessRows is sorted newest-first; index 0 = today or yesterday
+  const todayWellness = wellnessRows[0] ?? null
+  const wellnessForReadiness = todayWellness ? {
+    nightBefore: {
+      hrv: todayWellness.hrvLastNightAvg ?? null,
+      sleepScore: todayWellness.sleepScore ?? null,
+      bodyBatteryMorning: todayWellness.bodyBatteryHigh ?? null,
+    },
+    sevenDayAvg: {
+      hrv: todayWellness.hrvWeeklyAvg ?? null,
+      sleepScore: null,
+    },
+  } : null
 
   // Readiness delta from last two snapshots
   let readinessDelta: number | null = null
@@ -304,7 +349,7 @@ export default async function DashboardPage() {
 
         {/* Goal Readiness Score + Milestone Forecasting */}
         {kpis != null && (() => {
-          const r = computeReadiness(kpis)
+          const r = computeReadiness(kpis, wellnessForReadiness)
           const componentList = [
             r.components.aerobicEngine,
             r.components.threshold,
@@ -526,6 +571,9 @@ export default async function DashboardPage() {
         {recentLogs.length > 0 && kpis != null && (() => {
           const threshTrend = paceTrend(kpis.thresholdSpeedMps, kpis.thresholdSpeedMpsPrev)
           const cadTempoTrend = cadenceTrend(kpis.cadenceTempo, kpis.cadenceTempoPrev)
+          const tsbLabel = perf.tsb != null
+            ? perf.tsb > 5 ? "Fresh" : perf.tsb < -10 ? "Fatigued" : "Neutral"
+            : null
           return (
             <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
               <h2 className="text-lg font-bold text-gray-900 mb-4">Performance</h2>
@@ -576,6 +624,32 @@ export default async function DashboardPage() {
                   trendUp={cadTempoTrend?.up}
                 />
               </div>
+
+              {/* Fitness / Fatigue / Form (Banister CTL/ATL/TSB) */}
+              {perf.ctl != null && (
+                <div className="mt-5 pt-4 border-t border-gray-50">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-3">Training load (Banister model)</p>
+                  <div className="grid grid-cols-3 gap-4">
+                    <KpiCard
+                      label="Fitness (CTL)"
+                      value={String(perf.ctl)}
+                      sub="42-day avg load"
+                    />
+                    <KpiCard
+                      label="Fatigue (ATL)"
+                      value={String(perf.atl ?? "—")}
+                      sub="7-day avg load"
+                      highlight={(perf.atl ?? 0) > (perf.ctl ?? 0) * 1.5}
+                    />
+                    <KpiCard
+                      label="Form (TSB)"
+                      value={perf.tsb != null ? `${perf.tsb > 0 ? "+" : ""}${perf.tsb}` : "—"}
+                      sub={tsbLabel ?? undefined}
+                      highlight={perf.tsb != null && perf.tsb < -10}
+                    />
+                  </div>
+                </div>
+              )}
             </section>
           )
         })()}

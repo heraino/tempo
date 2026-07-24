@@ -1,6 +1,18 @@
 import type { KpiSnapshot } from "./kpis"
 import { fmtPace, fmtDistance } from "@/lib/fmt"
 
+export interface WellnessForReadiness {
+  nightBefore: {
+    hrv: number | null
+    sleepScore: number | null
+    bodyBatteryMorning: number | null
+  } | null
+  sevenDayAvg: {
+    hrv: number | null
+    sleepScore: number | null
+  } | null
+}
+
 export interface ReadinessComponent {
   score: number
   weight: number
@@ -108,7 +120,38 @@ function computeConfidence(kpis: KpiSnapshot): { score: number; label: "Low" | "
   return { score, label }
 }
 
-export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
+// Compute a freshness multiplier [0.75, 1.05] based on today's wellness data.
+// Each factor nudges the modifier up or down; they stack.
+function freshnessModifier(wellness: WellnessForReadiness | null | undefined): number {
+  if (!wellness) return 1.0
+  let mod = 1.0
+
+  const nb = wellness.nightBefore
+  const avg = wellness.sevenDayAvg
+
+  // HRV: compare last-night to 7-day baseline
+  if (nb?.hrv != null && avg?.hrv != null && avg.hrv > 0) {
+    const delta = nb.hrv - avg.hrv
+    if (delta >= 5) mod += 0.05
+    else if (delta <= -5) mod -= 0.10
+  }
+
+  // Sleep score: 0–100 Garmin scale
+  if (nb?.sleepScore != null) {
+    if (nb.sleepScore >= 80) mod += 0.02
+    else if (nb.sleepScore < 60) mod -= 0.05
+  }
+
+  // Body battery in the morning (Garmin 0–100)
+  if (nb?.bodyBatteryMorning != null) {
+    if (nb.bodyBatteryMorning > 75) mod += 0.02
+    else if (nb.bodyBatteryMorning < 30) mod -= 0.05
+  }
+
+  return Math.max(0.75, Math.min(1.05, mod))
+}
+
+export function computeReadiness(kpis: KpiSnapshot, wellness?: WellnessForReadiness | null): ReadinessResult {
   const ae  = kpis.easyPaceAt140Mps   ? lerp(kpis.easyPaceAt140Mps,   E_FLOOR, E_ADV)   : 0
   const th  = kpis.thresholdSpeedMps  ? lerp(kpis.thresholdSpeedMps,  T_FLOOR, T_ADV)   : 0
   const lr  = kpis.longRunDistanceM   ? lerp(kpis.longRunDistanceM,   LR_FLOOR, LR_ADV) : 0
@@ -120,7 +163,9 @@ export function computeReadiness(kpis: KpiSnapshot): ReadinessResult {
     : null
   const eco = cadSpm ? lerp(cadSpm, CAD_FLOOR, CAD_ADV) : 0
 
-  const total = Math.round(ae * 0.35 + th * 0.25 + lr * 0.20 + con * 0.15 + eco * 0.05)
+  const rawTotal = ae * 0.35 + th * 0.25 + lr * 0.20 + con * 0.15 + eco * 0.05
+  const freshMod = freshnessModifier(wellness)
+  const total = Math.min(100, Math.round(rawTotal * freshMod))
 
   const { score: confidence, label: confidenceLabel } = computeConfidence(kpis)
 
