@@ -7,6 +7,7 @@ import { eq, desc, asc, and, or, isNull, gte } from "drizzle-orm"
 import { fmtPace, fmtDistance, fmtDuration, fmtDate, resolveSpeedMps } from "@/lib/fmt"
 import { MileageChart } from "@/components/MileageChart"
 import { isRunningSport } from "@/lib/analytics/classify"
+import { getUserPreferences } from "@/lib/services/userPreferences.service"
 
 const KIND_LABELS: Record<string, string> = {
   easy: "Easy",
@@ -61,7 +62,7 @@ export default async function HistoryPage({
 
   const trendDays = period === "yearly" ? 5 * 365 : period === "monthly" ? 13 * 31 : 8 * 7
   const trendCutoff = new Date(Date.now() - trendDays * 24 * 60 * 60 * 1000)
-  const [rows, trendRows] = await Promise.all([
+  const [rows, trendRows, prefs] = await Promise.all([
     db.select({
       id: workoutLogs.id,
       startTime: workoutLogs.startTime,
@@ -85,62 +86,79 @@ export default async function HistoryPage({
       .from(workoutLogs)
       .where(and(...conditions, gte(workoutLogs.startTime, trendCutoff)))
       .orderBy(asc(workoutLogs.startTime)),
+    getUserPreferences(userId),
   ])
 
   const hasNext = rows.length > PAGE_SIZE
   const workouts = rows.slice(0, PAGE_SIZE)
 
-  // Build mileage buckets based on period
+  // Build mileage buckets using the athlete's local timezone so month/week
+  // boundaries match what Garmin and other apps show (which use local time).
   const now = new Date()
+  const tz = prefs.timezone ?? "UTC"
+
+  // Returns local {year, month (0-indexed), day, dow (0=Sun)} for a Date in tz
+  function localParts(d: Date) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      year: "numeric", month: "2-digit", day: "2-digit", weekday: "short",
+      timeZone: tz,
+    }).formatToParts(d)
+    const year = parseInt(parts.find(p => p.type === "year")!.value)
+    const month = parseInt(parts.find(p => p.type === "month")!.value) - 1
+    const day = parseInt(parts.find(p => p.type === "day")!.value)
+    const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+      .indexOf(parts.find(p => p.type === "weekday")!.value)
+    return { year, month, day, dow }
+  }
+
   type Bucket = { label: string; miles: number }
   const bucketMap = new Map<string, Bucket>()
 
   if (period === "weekly") {
+    const { year: ny, month: nm, day: nd, dow: ndow } = localParts(now)
+    const thisMondayOffset = ndow === 0 ? -6 : 1 - ndow
     for (let i = 7; i >= 0; i--) {
-      const ws = new Date(now)
-      const day = ws.getUTCDay()
-      ws.setUTCDate(ws.getUTCDate() + (day === 0 ? -6 : 1 - day) - i * 7)
-      ws.setUTCHours(0, 0, 0, 0)
-      const key = ws.toISOString().slice(0, 10)
-      bucketMap.set(key, { label: ws.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }), miles: 0 })
+      const monday = new Date(Date.UTC(ny, nm, nd + thisMondayOffset - i * 7))
+      const key = monday.toISOString().slice(0, 10)
+      bucketMap.set(key, { label: monday.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }), miles: 0 })
     }
     for (const w of trendRows) {
       if (!w.totalDistanceM || !w.startTime || !isRunningSport(w.sport)) continue
-      const d = new Date(w.startTime)
-      const day = d.getUTCDay()
-      d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day))
-      d.setUTCHours(0, 0, 0, 0)
-      const b = bucketMap.get(d.toISOString().slice(0, 10))
+      const { year, month, day, dow } = localParts(new Date(w.startTime))
+      const mondayOffset = dow === 0 ? -6 : 1 - dow
+      const monday = new Date(Date.UTC(year, month, day + mondayOffset))
+      const b = bucketMap.get(monday.toISOString().slice(0, 10))
       if (b) b.miles += w.totalDistanceM / 1609.344
     }
   } else if (period === "monthly") {
+    const { year: ny, month: nm } = localParts(now)
     let prevYear: number | null = null
     for (let i = 11; i >= 0; i--) {
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
+      const d = new Date(Date.UTC(ny, nm - i, 1))
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
       const yr = d.getUTCFullYear()
       const mon = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" })
       // Show year suffix only when the year changes (first bar of a new year)
-      const label = prevYear !== null && yr !== prevYear ? `${mon} '${String(yr).slice(2)}` : mon
+      const label = prevYear !== null && yr !== prevYear ? `${mon} '${String(yr).slice(2)}` : mon
       prevYear = yr
       bucketMap.set(key, { label, miles: 0 })
     }
     for (const w of trendRows) {
       if (!w.totalDistanceM || !w.startTime || !isRunningSport(w.sport)) continue
-      const d = new Date(w.startTime)
-      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+      const { year, month } = localParts(new Date(w.startTime))
+      const key = `${year}-${String(month + 1).padStart(2, "0")}`
       const b = bucketMap.get(key)
       if (b) b.miles += w.totalDistanceM / 1609.344
     }
   } else {
-    const startYear = now.getUTCFullYear() - 4
-    for (let y = startYear; y <= now.getUTCFullYear(); y++) {
+    const { year: localYear } = localParts(now)
+    for (let y = localYear - 4; y <= localYear; y++) {
       bucketMap.set(String(y), { label: String(y), miles: 0 })
     }
     for (const w of trendRows) {
       if (!w.totalDistanceM || !w.startTime || !isRunningSport(w.sport)) continue
-      const key = String(new Date(w.startTime).getUTCFullYear())
-      const b = bucketMap.get(key)
+      const { year } = localParts(new Date(w.startTime))
+      const b = bucketMap.get(String(year))
       if (b) b.miles += w.totalDistanceM / 1609.344
     }
   }
