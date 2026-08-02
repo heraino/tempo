@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
 import { eq, desc, asc, and, or, isNull, gte } from "drizzle-orm"
 import { fmtPace, fmtDistance, fmtDuration, fmtDate, resolveSpeedMps } from "@/lib/fmt"
+import { MileageChart } from "@/components/MileageChart"
 
 const KIND_LABELS: Record<string, string> = {
   easy: "Easy",
@@ -138,7 +139,6 @@ export default async function HistoryPage({
   }
 
   const mileageBuckets = Array.from(bucketMap.values()).map((b) => ({ ...b, miles: Math.round(b.miles * 10) / 10 }))
-  const maxMiles = Math.max(...mileageBuckets.map((b) => b.miles), 1)
   const currentMiles = mileageBuckets[mileageBuckets.length - 1]?.miles ?? 0
   const previousMiles = mileageBuckets[mileageBuckets.length - 2]?.miles ?? 0
   const currentLabel = period === "yearly" ? "This year" : period === "monthly" ? "This month" : "This week"
@@ -208,28 +208,7 @@ export default async function HistoryPage({
                 <span>{previousLabel}: <span className="font-semibold text-gray-800">{previousMiles.toFixed(1)} mi</span></span>
               </div>
             </div>
-            <div className="flex items-end gap-0.5">
-              {mileageBuckets.map(({ label, miles }, idx) => {
-                const heightPx = Math.round((miles / maxMiles) * 52)
-                const isCurrent = idx === mileageBuckets.length - 1
-                return (
-                  <div key={label} className="flex-1 flex flex-col items-center gap-1">
-                    <span className="text-[8px] text-gray-400 tabular-nums h-3 leading-3">
-                      {miles > 0 ? miles.toFixed(0) : ""}
-                    </span>
-                    <div className="w-full flex flex-col justify-end" style={{ height: 52 }}>
-                      {heightPx > 0 && (
-                        <div
-                          className={`w-full rounded-t-sm ${isCurrent ? "bg-orange-500" : "bg-orange-200"}`}
-                          style={{ height: heightPx }}
-                        />
-                      )}
-                    </div>
-                    <span className="text-[7px] text-gray-400 text-center leading-tight">{label}</span>
-                  </div>
-                )
-              })}
-            </div>
+            <MileageChart buckets={mileageBuckets} />
           </section>
         )}
 
