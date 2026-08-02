@@ -6,6 +6,7 @@ import { workoutLogs } from "@/lib/db/schema"
 import { eq, desc, asc, and, or, isNull, gte } from "drizzle-orm"
 import { fmtPace, fmtDistance, fmtDuration, fmtDate, resolveSpeedMps } from "@/lib/fmt"
 import { MileageChart } from "@/components/MileageChart"
+import { isRunningSport } from "@/lib/analytics/classify"
 
 const KIND_LABELS: Record<string, string> = {
   easy: "Easy",
@@ -80,9 +81,9 @@ export default async function HistoryPage({
       .limit(PAGE_SIZE + 1)
       .offset((page - 1) * PAGE_SIZE),
     db
-      .select({ startTime: workoutLogs.startTime, totalDistanceM: workoutLogs.totalDistanceM })
+      .select({ startTime: workoutLogs.startTime, totalDistanceM: workoutLogs.totalDistanceM, sport: workoutLogs.sport })
       .from(workoutLogs)
-      .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, trendCutoff)))
+      .where(and(...conditions, gte(workoutLogs.startTime, trendCutoff)))
       .orderBy(asc(workoutLogs.startTime)),
   ])
 
@@ -104,7 +105,7 @@ export default async function HistoryPage({
       bucketMap.set(key, { label: ws.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }), miles: 0 })
     }
     for (const w of trendRows) {
-      if (!w.totalDistanceM || !w.startTime) continue
+      if (!w.totalDistanceM || !w.startTime || !isRunningSport(w.sport)) continue
       const d = new Date(w.startTime)
       const day = d.getUTCDay()
       d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day))
@@ -125,7 +126,7 @@ export default async function HistoryPage({
       bucketMap.set(key, { label, miles: 0 })
     }
     for (const w of trendRows) {
-      if (!w.totalDistanceM || !w.startTime) continue
+      if (!w.totalDistanceM || !w.startTime || !isRunningSport(w.sport)) continue
       const d = new Date(w.startTime)
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
       const b = bucketMap.get(key)
@@ -137,7 +138,7 @@ export default async function HistoryPage({
       bucketMap.set(String(y), { label: String(y), miles: 0 })
     }
     for (const w of trendRows) {
-      if (!w.totalDistanceM || !w.startTime) continue
+      if (!w.totalDistanceM || !w.startTime || !isRunningSport(w.sport)) continue
       const key = String(new Date(w.startTime).getUTCFullYear())
       const b = bucketMap.get(key)
       if (b) b.miles += w.totalDistanceM / 1609.344
