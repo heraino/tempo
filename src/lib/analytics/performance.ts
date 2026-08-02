@@ -1,6 +1,6 @@
 import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
-import { eq, desc } from "drizzle-orm"
+import { eq, desc, gte, and } from "drizzle-orm"
 import { isRunningSport } from "./classify"
 
 export interface PerformanceMetrics {
@@ -26,8 +26,7 @@ export async function computePerformance(userId: string): Promise<PerformanceMet
       sport: workoutLogs.sport,
     })
     .from(workoutLogs)
-    .where(eq(workoutLogs.userId, userId))
-    // Fetch everything >= cutoff; filter non-running after
+    .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, cutoff)))
     .orderBy(desc(workoutLogs.startTime))
 
   // Filter to running activities (training load is a running-specific metric)
@@ -40,7 +39,6 @@ export async function computePerformance(userId: string): Promise<PerformanceMet
   // Build a date → total load map (multiple runs on the same calendar day sum)
   const loadByDate = new Map<string, number>()
   for (const row of running) {
-    if (new Date(row.startTime!) < cutoff) continue
     const dateKey = new Date(row.startTime!).toISOString().slice(0, 10)
     loadByDate.set(dateKey, (loadByDate.get(dateKey) ?? 0) + (row.trainingLoad ?? 0))
   }
