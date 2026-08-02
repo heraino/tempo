@@ -57,7 +57,7 @@ export default async function HistoryPage({
     )
   }
 
-  const trendDays = period === "yearly" ? 5 * 365 : period === "monthly" ? 2 * 365 : 90
+  const trendDays = period === "yearly" ? 5 * 365 : period === "monthly" ? 13 * 31 : 8 * 7
   const trendCutoff = new Date(Date.now() - trendDays * 24 * 60 * 60 * 1000)
   const [rows, trendRows] = await Promise.all([
     db.select({
@@ -94,7 +94,7 @@ export default async function HistoryPage({
   const bucketMap = new Map<string, Bucket>()
 
   if (period === "weekly") {
-    for (let i = 11; i >= 0; i--) {
+    for (let i = 7; i >= 0; i--) {
       const ws = new Date(now)
       const day = ws.getUTCDay()
       ws.setUTCDate(ws.getUTCDate() + (day === 0 ? -6 : 1 - day) - i * 7)
@@ -112,7 +112,7 @@ export default async function HistoryPage({
       if (b) b.miles += w.totalDistanceM / 1609.344
     }
   } else if (period === "monthly") {
-    for (let i = 23; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
       bucketMap.set(key, { label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" }), miles: 0 })
