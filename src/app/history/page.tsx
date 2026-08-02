@@ -113,10 +113,16 @@ export default async function HistoryPage({
       if (b) b.miles += w.totalDistanceM / 1609.344
     }
   } else if (period === "monthly") {
+    let prevYear: number | null = null
     for (let i = 11; i >= 0; i--) {
       const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
-      bucketMap.set(key, { label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" }), miles: 0 })
+      const yr = d.getUTCFullYear()
+      const mon = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" })
+      // Show year suffix only when the year changes (first bar of a new year)
+      const label = prevYear !== null && yr !== prevYear ? `${mon} '${String(yr).slice(2)}` : mon
+      prevYear = yr
+      bucketMap.set(key, { label, miles: 0 })
     }
     for (const w of trendRows) {
       if (!w.totalDistanceM || !w.startTime) continue

@@ -69,7 +69,7 @@ export function MileageChart({ buckets }: { buckets: Bucket[] }) {
             </div>
 
             {/* Period label */}
-            <span className={`text-[7px] text-center leading-tight ${isSelected ? "text-orange-500 font-semibold" : "text-gray-400"}`}>
+            <span className={`text-[7px] text-center leading-tight whitespace-nowrap ${isSelected ? "text-orange-500 font-semibold" : "text-gray-400"}`}>
               {label}
             </span>
           </div>
