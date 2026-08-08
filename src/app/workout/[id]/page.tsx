@@ -695,55 +695,6 @@ export default async function WorkoutDetailPage({
           </Section>
         )}
 
-        {/* Source data */}
-        {fitFile && (
-          <Section title="Source data">
-            <dl className="space-y-2 text-sm">
-              <div className="flex gap-2">
-                <dt className="text-gray-400 shrink-0 w-28">File</dt>
-                <dd className="text-gray-700 break-all">{fitFile.fileName ?? "—"}</dd>
-              </div>
-              <div className="flex gap-2">
-                <dt className="text-gray-400 shrink-0 w-28">Size</dt>
-                <dd className="text-gray-700">
-                  {fitFile.fileSizeBytes != null
-                    ? `${(fitFile.fileSizeBytes / 1024).toFixed(1)} KB`
-                    : "—"}
-                </dd>
-              </div>
-              <div className="flex gap-2">
-                <dt className="text-gray-400 shrink-0 w-28">SHA-256</dt>
-                <dd className="text-gray-500 font-mono text-xs break-all">{fitFile.sha256}</dd>
-              </div>
-              <div className="flex gap-2">
-                <dt className="text-gray-400 shrink-0 w-28">Parser</dt>
-                <dd className="text-gray-500 font-mono text-xs">{fitFile.parserVersion}</dd>
-              </div>
-              {fitFile.blobUrl && !fitFile.blobUrl.startsWith("local://") && (
-                <div className="flex gap-2">
-                  <dt className="text-gray-400 shrink-0 w-28">Source file</dt>
-                  <dd>
-                    <a
-                      href={fitFile.blobUrl}
-                      className="text-orange-500 hover:underline text-xs"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Download original ↗
-                    </a>
-                  </dd>
-                </div>
-              )}
-              {fitFile.blobUrl?.startsWith("local://") && (
-                <div className="flex gap-2">
-                  <dt className="text-gray-400 shrink-0 w-28">Storage</dt>
-                  <dd className="text-gray-400 text-xs italic">Local dev (no blob)</dd>
-                </div>
-              )}
-            </dl>
-          </Section>
-        )}
-
       </div>
     </main>
   )
