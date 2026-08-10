@@ -84,10 +84,10 @@ describe("fmtTemp", () => {
     expect(fmtTemp(undefined)).toBe("—")
   })
 
-  it("rounds and appends °C", () => {
-    expect(fmtTemp(20.7)).toBe("21°C")
-    expect(fmtTemp(-5.2)).toBe("-5°C")
-    expect(fmtTemp(0)).toBe("0°C")
+  it("converts Celsius input to rounded °F", () => {
+    expect(fmtTemp(20.7)).toBe("69°F")
+    expect(fmtTemp(-5.2)).toBe("23°F")
+    expect(fmtTemp(0)).toBe("32°F")
   })
 })
 

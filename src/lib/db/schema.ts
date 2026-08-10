@@ -516,3 +516,60 @@ export const jobs = pgTable("job", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 })
+
+// ─── Training goals ───────────────────────────────────────────────────────────
+// The athlete's declared target. Replaces the previously hardcoded
+// "half marathon at 7:20/mi" assumption. goalType determines which target
+// columns are meaningful:
+//   race              → targetDistanceM, targetDate, optional targetDurationSecs
+//   distance_milestone→ targetDistanceM, optional targetDate
+//   pace              → targetPaceMinPerKm, optional targetDistanceM
+//   distance_at_pace  → targetDistanceM + targetPaceMinPerKm (or targetDurationSecs)
+//   habit             → targetRunsPerWeek
+// Canonical SI units are stored; conversion happens at the display boundary.
+
+export const trainingGoals = pgTable("training_goal", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  goalType: text("goal_type").notNull(),
+  title: text("title"),
+  targetDate: date("target_date"),
+  targetDistanceM: real("target_distance_m"),
+  targetDurationSecs: real("target_duration_secs"),
+  targetPaceMinPerKm: real("target_pace_min_per_km"),
+  targetRunsPerWeek: integer("target_runs_per_week"),
+  // active | achieved | abandoned
+  status: text("status").notNull().default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+})
+
+// ─── Plan change proposals ────────────────────────────────────────────────────
+// One row per AI-generated adjustment proposal from a plan review. Each is
+// accepted or rejected individually by the athlete; accepting a structural
+// proposal creates a new training_plan_version. coachingAnalysisId links back
+// to the review that produced it (and its persisted context snapshot).
+
+export const planChangeProposals = pgTable("plan_change_proposal", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coachingAnalysisId: text("coaching_analysis_id").references(() => coachingAnalyses.id, { onDelete: "cascade" }),
+  // Deterministic op name applied to plan_json (see lib/plan/mutations.ts)
+  changeOp: text("change_op").notNull(),
+  changeParams: jsonb("change_params"),
+  title: text("title").notNull(),
+  rationale: text("rationale").notNull(),
+  evidence: text("evidence"),
+  // low | medium | high
+  severity: text("severity").notNull().default("medium"),
+  // pending | accepted | rejected | superseded
+  status: text("status").notNull().default("pending"),
+  // Plan version created when this proposal was accepted
+  resultingPlanVersionId: text("resulting_plan_version_id").references(
+    (): AnyPgColumn => trainingPlanVersions.id,
+    { onDelete: "set null" }
+  ),
+  decidedAt: timestamp("decided_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+})

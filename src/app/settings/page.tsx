@@ -2,6 +2,8 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
+import { getActiveGoal } from "@/lib/services/goal.service"
+import { describeGoal } from "@/lib/goals/goal"
 import { savePreferences } from "./actions"
 import { TimezoneField } from "@/components/TimezoneDetectButton"
 
@@ -14,13 +16,36 @@ export default async function SettingsPage() {
   const session = await auth()
   if (!session?.user?.id) redirect("/sign-in")
 
-  const prefs = await getUserPreferences(session.user.id)
+  const [prefs, goal] = await Promise.all([
+    getUserPreferences(session.user.id),
+    getActiveGoal(session.user.id),
+  ])
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8 pb-24">
       <div className="max-w-2xl mx-auto space-y-6">
 
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+
+        {/* Goal */}
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">Training goal</h2>
+          <p className="text-xs text-gray-400 mb-4">
+            {goal
+              ? describeGoal(goal, prefs.unitsSystem as "imperial" | "metric")
+              : "You haven't set a goal yet. Your coach needs one to judge whether training is on track."}
+          </p>
+          <Link
+            href="/goal"
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-orange-300 hover:text-orange-600 transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="9" />
+              <circle cx="12" cy="12" r="4" />
+            </svg>
+            {goal ? "Edit goal" : "Set your goal"}
+          </Link>
+        </section>
 
         <form action={save}>
           {/* Units */}

@@ -230,6 +230,198 @@ export async function findMatchingRunSession(
   return sessions.sort((a, b) => a.sequenceInDay - b.sequenceInDay)[0]
 }
 
+// ─── Day-level edits ──────────────────────────────────────────────────────────
+//
+// These operate on a single scheduled day and never alter plan structure.
+// Every edit records adjustmentSource="athlete" so the change stays traceable
+// and can be distinguished from what the plan version prescribed.
+
+/**
+ * Find the planned_workout_day for a date, creating an unstructured one if the
+ * schedule has no entry for it yet. Safe against concurrent inserts.
+ */
+async function findOrCreatePlannedDay(
+  userId: string,
+  planVersionId: string,
+  dateStr: string
+): Promise<string> {
+  const existing = await db
+    .select({ id: plannedWorkoutDays.id })
+    .from(plannedWorkoutDays)
+    .where(
+      and(
+        eq(plannedWorkoutDays.userId, userId),
+        eq(plannedWorkoutDays.scheduledDate, dateStr),
+        eq(plannedWorkoutDays.planVersionId, planVersionId)
+      )
+    )
+    .limit(1)
+
+  if (existing.length > 0) return existing[0].id
+
+  const [created] = await db
+    .insert(plannedWorkoutDays)
+    .values({
+      userId,
+      planVersionId,
+      scheduledDate: dateStr,
+      weekday: new Date(dateStr + "T00:00:00.000Z").toLocaleDateString("en-US", {
+        weekday: "long",
+        timeZone: "UTC",
+      }) as typeof plannedWorkoutDays.$inferSelect["weekday"],
+      cycleWeekId: "",
+      isRestDay: false,
+    })
+    .onConflictDoNothing()
+    .returning()
+
+  if (created) return created.id
+
+  // Lost an insert race — read back the winner
+  const [found] = await db
+    .select({ id: plannedWorkoutDays.id })
+    .from(plannedWorkoutDays)
+    .where(
+      and(
+        eq(plannedWorkoutDays.userId, userId),
+        eq(plannedWorkoutDays.scheduledDate, dateStr),
+        eq(plannedWorkoutDays.planVersionId, planVersionId)
+      )
+    )
+    .limit(1)
+
+  if (!found) throw new Error(`Could not resolve planned day for ${dateStr}`)
+  return found.id
+}
+
+/**
+ * Swap a single day's session to a different kind.
+ *
+ * The original prescription is preserved in originalPrescription the first time
+ * a session is edited, so the plan's intent is never lost.
+ */
+export async function changeSessionType(
+  plannedSessionId: string,
+  userId: string,
+  newKind: string,
+  opts: {
+    label?: string
+    prescription?: string
+    isRunSession?: boolean
+    isStrengthSession?: boolean
+    reason?: string
+  } = {}
+) {
+  const rows = await db
+    .select()
+    .from(plannedSessions)
+    .where(and(eq(plannedSessions.id, plannedSessionId), eq(plannedSessions.userId, userId)))
+    .limit(1)
+
+  if (rows.length === 0) return null
+  const orig = rows[0]
+
+  const [updated] = await db
+    .update(plannedSessions)
+    .set({
+      sessionKind: newKind,
+      label: opts.label ?? orig.label,
+      prescription: opts.prescription ?? orig.prescription,
+      ...(opts.isRunSession !== undefined ? { isRunSession: opts.isRunSession } : {}),
+      ...(opts.isStrengthSession !== undefined ? { isStrengthSession: opts.isStrengthSession } : {}),
+      adjustmentReason: opts.reason ?? null,
+      adjustmentSource: "athlete",
+      // Capture the plan's original wording once, on the first edit
+      originalPrescription: orig.originalPrescription ?? orig.prescription,
+      updatedAt: new Date(),
+    })
+    .where(eq(plannedSessions.id, plannedSessionId))
+    .returning()
+
+  return updated ?? null
+}
+
+/**
+ * Return a skipped session to "planned". Completed sessions are not restored
+ * here — a completion is evidence and must be removed explicitly.
+ */
+export async function restoreSession(plannedSessionId: string, userId: string) {
+  const [updated] = await db
+    .update(plannedSessions)
+    .set({
+      status: "planned",
+      adjustmentReason: null,
+      adjustmentSource: "athlete",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(plannedSessions.id, plannedSessionId),
+        eq(plannedSessions.userId, userId),
+        eq(plannedSessions.status, "skipped")
+      )
+    )
+    .returning()
+
+  return updated ?? null
+}
+
+/**
+ * Add an extra session to a day that the plan did not prescribe.
+ * Appended after existing sessions in the day.
+ */
+export async function addAdHocSession(
+  userId: string,
+  planVersionId: string,
+  dateStr: string,
+  input: {
+    sessionKind: string
+    label: string
+    prescription: string
+    isRunSession: boolean
+    isStrengthSession: boolean
+    targetDistanceM?: number | null
+    reason?: string
+  }
+) {
+  const dayId = await findOrCreatePlannedDay(userId, planVersionId, dateStr)
+
+  const existing = await db
+    .select({ sequenceInDay: plannedSessions.sequenceInDay })
+    .from(plannedSessions)
+    .where(and(eq(plannedSessions.plannedDayId, dayId), eq(plannedSessions.userId, userId)))
+
+  const nextSequence =
+    existing.length > 0 ? Math.max(...existing.map((s) => s.sequenceInDay)) + 1 : 1
+
+  const [created] = await db
+    .insert(plannedSessions)
+    .values({
+      plannedDayId: dayId,
+      userId,
+      planVersionId,
+      sessionKind: input.sessionKind,
+      label: input.label,
+      prescription: input.prescription,
+      isRunSession: input.isRunSession,
+      isStrengthSession: input.isStrengthSession,
+      sequenceInDay: nextSequence,
+      targetDistanceM: input.targetDistanceM ?? null,
+      status: "planned",
+      adjustmentReason: input.reason ?? "Added by athlete",
+      adjustmentSource: "athlete",
+    })
+    .returning()
+
+  // A day with a session on it is no longer a rest day
+  await db
+    .update(plannedWorkoutDays)
+    .set({ isRestDay: false })
+    .where(eq(plannedWorkoutDays.id, dayId))
+
+  return created ?? null
+}
+
 // ─── Read helpers ─────────────────────────────────────────────────────────────
 
 /** Fetch completions for a planned session (at most one for MVP). */

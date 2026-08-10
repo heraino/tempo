@@ -6,6 +6,8 @@ import { workoutLogs, coachingAnalyses, athleteContexts, dailyWellness } from "@
 import { and, eq, desc, gte, lte } from "drizzle-orm"
 import { nebiusChat } from "@/lib/ai/nebius"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
+import { getActiveGoal, type TrainingGoal } from "@/lib/services/goal.service"
+import { describeGoal, resolveTargetPaceMinPerKm, fmtGoalPace, weeksBetween } from "@/lib/goals/goal"
 import { computeReadiness } from "@/lib/analytics/readiness"
 import { fmtPace, fmtDistance, fmtDuration } from "@/lib/fmt"
 import { revalidatePath } from "next/cache"
@@ -112,6 +114,33 @@ function mpsToMinPerMile(mps: number | null | undefined): string {
   return fmtPace(mps ?? null)
 }
 
+/**
+ * Compact goal shape for the AI context snapshot. Returns null when the
+ * athlete has not declared a goal — prompts must then avoid inventing one.
+ */
+function buildGoalContext(goal: TrainingGoal | null, todayStr: string) {
+  if (!goal) return null
+  return {
+    type: goal.goalType,
+    summary: describeGoal(goal, "imperial"),
+    targetDate: goal.targetDate,
+    weeksRemaining: goal.targetDate ? weeksBetween(todayStr, goal.targetDate) : null,
+    targetPacePerMile: fmtGoalPace(resolveTargetPaceMinPerKm(goal), "imperial"),
+  }
+}
+
+/** Prompt fragment describing who the coach is advising. */
+function goalSentence(goalCtx: ReturnType<typeof buildGoalContext>): string {
+  if (!goalCtx) {
+    return "an athlete who has not yet declared a specific goal — focus on general development and do not assume a target race or pace"
+  }
+  const weeks =
+    goalCtx.weeksRemaining != null && goalCtx.weeksRemaining >= 0
+      ? ` (${goalCtx.weeksRemaining} weeks out)`
+      : ""
+  return `an athlete training toward: ${goalCtx.summary}${weeks}`
+}
+
 async function generateAndSaveNotebook(
   userId: string,
   workoutId: string,
@@ -120,6 +149,8 @@ async function generateAndSaveNotebook(
 ): Promise<void> {
   const readiness = computeReadiness(kpis)
   const wellness = await getWellnessContext(userId, workoutDateStr).catch(() => null)
+  const goal = await getActiveGoal(userId).catch(() => null)
+  const goalCtx = buildGoalContext(goal, workoutDateStr)
 
   // Fetch last 5 workout analyses for context
   const recentAnalyses = await db
@@ -165,14 +196,10 @@ async function generateAndSaveNotebook(
       grade: a.grade,
     })),
     wellness: wellness ?? undefined,
-    goal: {
-      event: "half marathon",
-      targetPacePerMile: "7:20/mi",
-      targetAge: 50,
-    },
+    goal: goalCtx,
   }
 
-  const systemPrompt = `You are an experienced running coach keeping a longitudinal notebook on an athlete's trajectory toward a half marathon at 7:20/mile pace by age 50. You receive structured data about their current fitness, recent workout history, and wellness signals (HRV, sleep, body battery).
+  const systemPrompt = `You are an experienced running coach keeping a longitudinal notebook on the trajectory of ${goalSentence(goalCtx)}. You receive structured data about their current fitness, recent workout history, and wellness signals (HRV, sleep, body battery).
 
 Write a brief notebook entry that observes patterns and trends — not just today's workout. Think like a coach who has been following this athlete for weeks. When wellness data is present, factor recovery state into your assessment of trajectory and limiters.
 
@@ -316,6 +343,8 @@ export async function generateCoachingAnalysis(workoutId: string): Promise<{
 
   // Wellness data for the night before / morning of the workout
   const wellness = await getWellnessContext(userId, workoutDateStr).catch(() => null)
+  const activeGoal = await getActiveGoal(userId).catch(() => null)
+  const workoutGoalCtx = buildGoalContext(activeGoal, workoutDateStr)
 
   // Build context snapshot
   const contextSnapshot = {
@@ -361,14 +390,10 @@ export async function generateCoachingAnalysis(workoutId: string): Promise<{
         }
       : null,
     recovery: wellness ?? undefined,
-    goal: {
-      event: "half marathon",
-      targetPacePerMile: "7:20/mi",
-      targetAge: 50,
-    },
+    goal: workoutGoalCtx,
   }
 
-  const systemPrompt = `You are an experienced running coach analyzing a workout for an athlete training toward a half marathon at 7:20/mile pace by age 50. You receive structured workout data and produce a coaching analysis.
+  const systemPrompt = `You are an experienced running coach analyzing a workout for ${goalSentence(workoutGoalCtx)}. You receive structured workout data and produce a coaching analysis.
 
 Follow the workflow: DATA → DETERMINISTIC CALCULATIONS → ATHLETE REPORT → COACH INTERPRETATION → DECISION.
 

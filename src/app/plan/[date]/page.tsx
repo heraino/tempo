@@ -3,6 +3,8 @@ import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
 import { getDayWithSessions } from "@/lib/services/plan.service"
 import { addDays } from "@/lib/plan/scheduler"
+import { PlanSessionCard } from "@/components/PlanSessionCard"
+import { AddPlanSession } from "@/components/AddPlanSession"
 
 export default async function PlanDatePage({
   params,
@@ -77,39 +79,30 @@ export default async function PlanDatePage({
             </div>
           </div>
 
-          <div className="mt-6 pt-5 border-t border-gray-50">
-            {day.isRestDay ? (
+          <div className="mt-6 pt-5 border-t border-gray-50 space-y-4">
+            {day.sessions.length === 0 ? (
               <p className="text-sm text-gray-400">Rest day — no sessions scheduled.</p>
             ) : (
               <ul className="space-y-4">
                 {day.sessions.map((s) => (
-                  <li key={s.id} className="rounded-xl border border-gray-100 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-orange-50 text-orange-500">
-                            {s.sessionKind}
-                          </span>
-                          {s.isRunSession && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                              Run
-                            </span>
-                          )}
-                          {s.isStrengthSession && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                              Strength
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm font-semibold text-gray-900">{s.label}</p>
-                        <p className="text-sm text-gray-600 mt-1 leading-relaxed">{s.prescription}</p>
-                      </div>
-                      <StatusPill status={s.status} />
-                    </div>
-                  </li>
+                  <PlanSessionCard
+                    key={s.id}
+                    dateStr={dateParam}
+                    session={{
+                      id: s.id,
+                      sessionKind: s.sessionKind,
+                      label: s.label,
+                      prescription: s.prescription,
+                      isRunSession: s.isRunSession,
+                      isStrengthSession: s.isStrengthSession,
+                      status: s.status,
+                    }}
+                  />
                 ))}
               </ul>
             )}
+
+            <AddPlanSession dateStr={dateParam} />
           </div>
         </div>
 
@@ -126,27 +119,3 @@ export default async function PlanDatePage({
   )
 }
 
-function StatusPill({ status }: { status: string }) {
-  if (status === "completed") {
-    return (
-      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-green-50 text-green-600">
-        Done
-      </span>
-    )
-  }
-  if (status === "skipped") {
-    return (
-      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-gray-100 text-gray-400">
-        Skipped
-      </span>
-    )
-  }
-  if (status === "rescheduled") {
-    return (
-      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-amber-50 text-amber-500">
-        Moved
-      </span>
-    )
-  }
-  return null
-}
