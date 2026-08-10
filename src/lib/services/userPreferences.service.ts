@@ -3,13 +3,26 @@ import { userPreferences } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 
 export type UnitsSystem = "imperial" | "metric"
+export type TrainingMode = "just_run" | "goal_program"
+export type RunnerLevel = "beginner" | "intermediate"
 
 export interface UserPrefs {
   unitsSystem: UnitsSystem
   timezone: string | null
+  trainingMode: TrainingMode
+  runnerLevel: RunnerLevel | null
+  daysPerWeek: number | null
+  longRunDay: string | null
 }
 
-const DEFAULT_PREFS: UserPrefs = { unitsSystem: "imperial", timezone: null }
+const DEFAULT_PREFS: UserPrefs = {
+  unitsSystem: "imperial",
+  timezone: null,
+  trainingMode: "goal_program",
+  runnerLevel: null,
+  daysPerWeek: null,
+  longRunDay: null,
+}
 
 export async function getUserPreferences(userId: string): Promise<UserPrefs> {
   try {
@@ -17,6 +30,10 @@ export async function getUserPreferences(userId: string): Promise<UserPrefs> {
       .select({
         unitsSystem: userPreferences.unitsSystem,
         timezone: userPreferences.timezone,
+        trainingMode: userPreferences.trainingMode,
+        runnerLevel: userPreferences.runnerLevel,
+        daysPerWeek: userPreferences.daysPerWeek,
+        longRunDay: userPreferences.longRunDay,
       })
       .from(userPreferences)
       .where(eq(userPreferences.userId, userId))
@@ -25,9 +42,31 @@ export async function getUserPreferences(userId: string): Promise<UserPrefs> {
     return {
       unitsSystem: (rows[0].unitsSystem ?? "imperial") as UnitsSystem,
       timezone: rows[0].timezone ?? null,
+      trainingMode: (rows[0].trainingMode ?? "goal_program") as TrainingMode,
+      runnerLevel: (rows[0].runnerLevel ?? null) as RunnerLevel | null,
+      daysPerWeek: rows[0].daysPerWeek ?? null,
+      longRunDay: rows[0].longRunDay ?? null,
     }
   } catch {
-    return DEFAULT_PREFS
+    // Columns may not exist yet on databases that have not run migration 0008
+    try {
+      const rows = await db
+        .select({
+          unitsSystem: userPreferences.unitsSystem,
+          timezone: userPreferences.timezone,
+        })
+        .from(userPreferences)
+        .where(eq(userPreferences.userId, userId))
+        .limit(1)
+      if (!rows[0]) return DEFAULT_PREFS
+      return {
+        ...DEFAULT_PREFS,
+        unitsSystem: (rows[0].unitsSystem ?? "imperial") as UnitsSystem,
+        timezone: rows[0].timezone ?? null,
+      }
+    } catch {
+      return DEFAULT_PREFS
+    }
   }
 }
 
@@ -42,12 +81,20 @@ export async function upsertUserPreferences(
       userId,
       unitsSystem: prefs.unitsSystem ?? "imperial",
       timezone: prefs.timezone ?? null,
+      trainingMode: prefs.trainingMode ?? "goal_program",
+      runnerLevel: prefs.runnerLevel ?? null,
+      daysPerWeek: prefs.daysPerWeek ?? null,
+      longRunDay: prefs.longRunDay ?? null,
     })
     .onConflictDoUpdate({
       target: userPreferences.userId,
       set: {
         ...(prefs.unitsSystem != null ? { unitsSystem: prefs.unitsSystem } : {}),
         ...(prefs.timezone !== undefined ? { timezone: prefs.timezone } : {}),
+        ...(prefs.trainingMode != null ? { trainingMode: prefs.trainingMode } : {}),
+        ...(prefs.runnerLevel !== undefined ? { runnerLevel: prefs.runnerLevel } : {}),
+        ...(prefs.daysPerWeek !== undefined ? { daysPerWeek: prefs.daysPerWeek } : {}),
+        ...(prefs.longRunDay !== undefined ? { longRunDay: prefs.longRunDay } : {}),
         updatedAt: new Date(),
       },
     })

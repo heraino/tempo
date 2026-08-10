@@ -3,7 +3,9 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { getActiveGoal } from "@/lib/services/goal.service"
+import { getActivePlanVersion } from "@/lib/services/plan.service"
 import { describeGoal } from "@/lib/goals/goal"
+import { TrainingModeSection } from "@/components/TrainingModeSection"
 import { savePreferences } from "./actions"
 import { TimezoneField } from "@/components/TimezoneDetectButton"
 
@@ -16,10 +18,13 @@ export default async function SettingsPage() {
   const session = await auth()
   if (!session?.user?.id) redirect("/sign-in")
 
-  const [prefs, goal] = await Promise.all([
+  const [prefs, goal, planVersion] = await Promise.all([
     getUserPreferences(session.user.id),
     getActiveGoal(session.user.id),
+    getActivePlanVersion(session.user.id),
   ])
+
+  const units = prefs.unitsSystem as "imperial" | "metric"
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8 pb-24">
@@ -27,12 +32,19 @@ export default async function SettingsPage() {
 
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
 
+        {/* Training mode */}
+        <TrainingModeSection
+          mode={prefs.trainingMode}
+          hasPlan={planVersion != null}
+          goalSummary={goal ? describeGoal(goal, units) : null}
+        />
+
         {/* Goal */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-1">Training goal</h2>
           <p className="text-xs text-gray-400 mb-4">
             {goal
-              ? describeGoal(goal, prefs.unitsSystem as "imperial" | "metric")
+              ? describeGoal(goal, units)
               : "You haven't set a goal yet. Your coach needs one to judge whether training is on track."}
           </p>
           <Link

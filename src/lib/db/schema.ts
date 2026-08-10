@@ -423,6 +423,16 @@ export const userPreferences = pgTable("user_preferences", {
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
   unitsSystem: text("units_system").notNull().default("imperial"),
   timezone: text("timezone"),
+  // ── Training mode ──
+  // just_run    → track workouts and coach, but assign no schedule
+  // goal_program→ follow a structured plan toward a declared goal
+  // Existing athletes all have plans, so the default preserves their behaviour.
+  trainingMode: text("training_mode").notNull().default("goal_program"),
+  // beginner | intermediate — self-reported; calibrates generated programs
+  runnerLevel: text("runner_level"),
+  // Athlete availability, retained so a program can be regenerated later
+  daysPerWeek: integer("days_per_week"),
+  longRunDay: text("long_run_day"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 })

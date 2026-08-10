@@ -171,7 +171,7 @@ export default async function DashboardPage() {
       }>),
     computePerformance(userId).catch(() => ({ ctl: null, atl: null, tsb: null })),
     getActiveGoal(userId).catch(() => null),
-    getUserPreferences(userId).catch(() => ({ unitsSystem: "imperial" as const, timezone: null })),
+    getUserPreferences(userId),
   ])
 
   const units = dashPrefs.unitsSystem as "imperial" | "metric"
@@ -180,9 +180,14 @@ export default async function DashboardPage() {
   const goalDaysRemaining =
     activeGoal?.targetDate != null ? daysBetween(todayStr, activeGoal.targetDate) : null
 
-  if (!scheduleResult) redirect("/onboarding")
+  // "Just run" athletes have no schedule by design — the dashboard becomes a
+  // tracker rather than a plan. Only program-following athletes are sent to
+  // onboarding when no plan exists.
+  const isJustRun = dashPrefs.trainingMode === "just_run"
+  if (!scheduleResult && !isJustRun) redirect("/onboarding")
 
-  const { scheduledDays } = scheduleResult
+  const scheduledDays = scheduleResult?.scheduledDays ?? []
+  const hasSchedule = scheduleResult != null
   const todayDay = scheduledDays[0]
   const upcomingDays = scheduledDays.slice(1)
 
@@ -312,42 +317,68 @@ export default async function DashboardPage() {
           </svg>
         </Link>
 
-        {/* Today's workout */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">
-                {todayLabel}
-              </p>
-              <h2 className="text-lg font-bold text-gray-900 mt-1">Today&apos;s workout</h2>
+        {/* Today's workout — replaced by a simple log prompt in "just run" mode */}
+        {hasSchedule ? (
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">
+                  {todayLabel}
+                </p>
+                <h2 className="text-lg font-bold text-gray-900 mt-1">Today&apos;s workout</h2>
+              </div>
+              <Link
+                href="/log"
+                className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+              >
+                + Log workout
+              </Link>
+            </div>
+
+            {todayDay ? (
+              <Link href={`/plan/${todayStr}`} className="block mt-4 group">
+                {todayDay.isRestDay ? (
+                  <p className="text-sm text-gray-400">Rest day — no sessions scheduled.</p>
+                ) : (
+                  <div className="text-gray-700 text-sm leading-relaxed">
+                    {todaySessionSummary ?? "View sessions"}
+                  </div>
+                )}
+                <p className="mt-3 text-sm font-medium text-orange-500 group-hover:underline">
+                  View full workout →
+                </p>
+              </Link>
+            ) : (
+              <p className="mt-4 text-sm text-gray-400">No schedule found for today.</p>
+            )}
+          </section>
+        ) : (
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Go for a run</h2>
+                <p className="text-sm text-gray-400 mt-0.5">
+                  No schedule — you&apos;re running on your own terms.
+                </p>
+              </div>
+              <Link
+                href="/log"
+                className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+              >
+                + Log workout
+              </Link>
             </div>
             <Link
-              href="/log"
-              className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+              href="/goal/program"
+              className="mt-4 block text-sm font-medium text-orange-500 hover:underline"
             >
-              + Log workout
+              Want a plan to follow? Build a program →
             </Link>
-          </div>
-
-          {todayDay ? (
-            <Link href={`/plan/${todayStr}`} className="block mt-4 group">
-              {todayDay.isRestDay ? (
-                <p className="text-sm text-gray-400">Rest day — no sessions scheduled.</p>
-              ) : (
-                <div className="text-gray-700 text-sm leading-relaxed">
-                  {todaySessionSummary ?? "View sessions"}
-                </div>
-              )}
-              <p className="mt-3 text-sm font-medium text-orange-500 group-hover:underline">
-                View full workout →
-              </p>
-            </Link>
-          ) : (
-            <p className="mt-4 text-sm text-gray-400">No schedule found for today.</p>
-          )}
-        </section>
+          </section>
+        )}
 
         {/* Upcoming workouts */}
+        {hasSchedule && (
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Next 7 days</h2>
           <ul className="space-y-0">
@@ -392,6 +423,7 @@ export default async function DashboardPage() {
             })}
           </ul>
         </section>
+        )}
 
         {/* Goal Readiness Score + Milestone Forecasting */}
         {kpis != null && (() => {
@@ -700,23 +732,25 @@ export default async function DashboardPage() {
           )
         })()}
 
-        {/* Plan review */}
-        <Link
-          href="/plan/review"
-          className="flex items-center justify-between gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 hover:border-orange-300 transition-colors group"
-        >
-          <div>
-            <p className="text-sm font-semibold text-gray-800 group-hover:text-orange-600">
-              How is my plan working?
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Have your coach review the last 4 weeks and suggest changes
-            </p>
-          </div>
-          <svg className="text-gray-300 group-hover:text-orange-400 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </Link>
+        {/* Plan review — only meaningful when there is a plan to review */}
+        {hasSchedule && (
+          <Link
+            href="/plan/review"
+            className="flex items-center justify-between gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 hover:border-orange-300 transition-colors group"
+          >
+            <div>
+              <p className="text-sm font-semibold text-gray-800 group-hover:text-orange-600">
+                How is my plan working?
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Have your coach review the last 4 weeks and suggest changes
+              </p>
+            </div>
+            <svg className="text-gray-300 group-hover:text-orange-400 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </Link>
+        )}
 
         {/* Training trends */}
         <TrendCharts
