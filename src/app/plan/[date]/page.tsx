@@ -114,6 +114,24 @@ export default async function PlanDatePage({
           + Log a workout
         </Link>
 
+        {/* Plan review CTA */}
+        <Link
+          href="/plan/review"
+          className="flex items-center justify-between gap-3 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 hover:border-orange-300 transition-colors group"
+        >
+          <div>
+            <p className="text-sm font-semibold text-gray-800 group-hover:text-orange-600">
+              How is my plan working?
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Ask your coach to review the last 4 weeks
+            </p>
+          </div>
+          <svg className="text-gray-300 group-hover:text-orange-400 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </Link>
+
       </div>
     </main>
   )

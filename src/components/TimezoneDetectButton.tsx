@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useRef } from "react"
 
 // Curated IANA timezone list grouped by region
 const TZ_GROUPS: { label: string; zones: { value: string; label: string }[] }[] = [
@@ -123,29 +123,46 @@ interface TimezoneFieldProps {
 }
 
 export function TimezoneField({ savedValue }: TimezoneFieldProps) {
-  const [value, setValue] = useState(savedValue ?? "")
-  const [extraZone, setExtraZone] = useState<{ value: string; label: string } | null>(null)
+  const selectRef = useRef<HTMLSelectElement>(null)
 
+  // A saved zone outside the curated list is known at render time, so it can be
+  // offered as an option without any client-side detection.
+  const savedIsCustom = savedValue != null && !ALL_ZONES.has(savedValue)
+
+  // The device timezone can only be read in the browser — reading it during
+  // render would produce a server/client mismatch. Detection therefore syncs
+  // the DOM directly rather than driving React state.
   useEffect(() => {
+    const select = selectRef.current
+    if (!select || select.value) return
+
     const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
-    if (!value) setValue(detected)
-    // If detected (or saved) zone isn't in our list, add it as an option at the top
-    const effective = value || detected
-    if (effective && !ALL_ZONES.has(effective)) {
-      setExtraZone({ value: effective, label: effective })
+    if (!detected) return
+
+    if (!ALL_ZONES.has(detected)) {
+      const option = document.createElement("option")
+      option.value = detected
+      option.textContent = detected
+      select.prepend(option)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    select.value = detected
+  }, [])
 
   return (
     <select
+      ref={selectRef}
       name="timezone"
-      value={value}
-      onChange={e => setValue(e.target.value)}
+      defaultValue={savedValue ?? ""}
       className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
     >
-      {extraZone && (
+      {/* Empty placeholder so an undetected, unsaved field is not silently
+          committed as whichever zone happens to sort first. */}
+      <option value="" disabled>
+        Select a timezone…
+      </option>
+      {savedIsCustom && (
         <optgroup label="Current">
-          <option value={extraZone.value}>{extraZone.label}</option>
+          <option value={savedValue}>{savedValue}</option>
         </optgroup>
       )}
       {TZ_GROUPS.map(group => (

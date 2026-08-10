@@ -13,6 +13,9 @@ import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
 import { computeReadiness } from "@/lib/analytics/readiness"
 import { computePerformance } from "@/lib/analytics/performance"
+import { getActiveGoal } from "@/lib/services/goal.service"
+import { getUserPreferences } from "@/lib/services/userPreferences.service"
+import { describeGoal, weeksBetween, daysBetween } from "@/lib/goals/goal"
 import type { NotebookEntry } from "@/app/workout/coach-actions"
 
 function KpiCard({
@@ -91,7 +94,7 @@ export default async function DashboardPage() {
 
   const sevenDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook, trendWorkouts, wellnessRows, perf] = await Promise.all([
+  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook, trendWorkouts, wellnessRows, perf, activeGoal, dashPrefs] = await Promise.all([
     getScheduleRange(userId, todayStr, 8),
     db
       .select({
@@ -167,7 +170,15 @@ export default async function DashboardPage() {
         bodyBatteryHigh: number | null
       }>),
     computePerformance(userId).catch(() => ({ ctl: null, atl: null, tsb: null })),
+    getActiveGoal(userId).catch(() => null),
+    getUserPreferences(userId).catch(() => ({ unitsSystem: "imperial" as const, timezone: null })),
   ])
+
+  const units = dashPrefs.unitsSystem as "imperial" | "metric"
+  const goalWeeksRemaining =
+    activeGoal?.targetDate != null ? weeksBetween(todayStr, activeGoal.targetDate) : null
+  const goalDaysRemaining =
+    activeGoal?.targetDate != null ? daysBetween(todayStr, activeGoal.targetDate) : null
 
   if (!scheduleResult) redirect("/onboarding")
 
@@ -265,6 +276,41 @@ export default async function DashboardPage() {
             })}
           </p>
         </div>
+
+        {/* Goal */}
+        <Link
+          href="/goal"
+          className="flex items-center justify-between gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 hover:border-orange-300 transition-colors group"
+        >
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-0.5">
+              Training toward
+            </p>
+            {activeGoal ? (
+              <>
+                <p className="text-sm font-semibold text-gray-900 truncate">
+                  {activeGoal.title ?? describeGoal(activeGoal, units)}
+                </p>
+                {goalDaysRemaining != null && goalDaysRemaining >= 0 && (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {goalDaysRemaining === 0
+                      ? "Today's the day"
+                      : goalWeeksRemaining != null && goalWeeksRemaining >= 2
+                      ? `${goalWeeksRemaining} weeks to go`
+                      : `${goalDaysRemaining} day${goalDaysRemaining === 1 ? "" : "s"} to go`}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">
+                No goal set — tap to tell your coach what you&apos;re working toward
+              </p>
+            )}
+          </div>
+          <svg className="text-gray-300 group-hover:text-orange-400 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </Link>
 
         {/* Today's workout */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -653,6 +699,24 @@ export default async function DashboardPage() {
             </section>
           )
         })()}
+
+        {/* Plan review */}
+        <Link
+          href="/plan/review"
+          className="flex items-center justify-between gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 hover:border-orange-300 transition-colors group"
+        >
+          <div>
+            <p className="text-sm font-semibold text-gray-800 group-hover:text-orange-600">
+              How is my plan working?
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Have your coach review the last 4 weeks and suggest changes
+            </p>
+          </div>
+          <svg className="text-gray-300 group-hover:text-orange-400 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </Link>
 
         {/* Training trends */}
         <TrendCharts
