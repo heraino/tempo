@@ -11,6 +11,7 @@ import { getAthleteContextForWorkout } from "@/lib/services/athleteContext.servi
 import { getPainObservationsForWorkout } from "@/lib/services/painObservation.service"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { EditWorkoutPanel } from "@/components/EditWorkoutPanel"
+import { SessionKindPicker } from "@/components/SessionKindPicker"
 import { CoachAnalysisSection } from "@/components/CoachAnalysisSection"
 import { WorkoutCharts } from "@/components/WorkoutCharts"
 import type { CoachOutput } from "@/app/workout/coach-actions"
@@ -260,7 +261,14 @@ export default async function WorkoutDetailPage({
           <h1 className="text-2xl font-bold text-gray-900">
             {fmtDistance(log.totalDistanceM)}
           </h1>
-          <p className="text-sm text-gray-400 mt-0.5">{fmtDateLong(startDate)}</p>
+          <div className="flex items-center gap-2 mt-1.5">
+            <p className="text-sm text-gray-400">{fmtDateLong(startDate)}</p>
+            <SessionKindPicker
+              workoutId={log.id}
+              override={log.sessionKindOverride ?? null}
+              observed={log.observedSessionKind ?? null}
+            />
+          </div>
 
           <div className="grid grid-cols-3 gap-4 mt-6 pt-5 border-t border-gray-50">
             <Stat label="Time" value={fmtDuration(log.totalTimerSecs)} />

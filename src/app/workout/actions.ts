@@ -92,3 +92,27 @@ export async function updateWorkoutAnnotations(
   revalidatePath(`/workout/${workoutId}`)
   return { ok: true }
 }
+
+export async function setSessionKind(
+  workoutId: string,
+  kind: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await auth()
+  if (!session?.user?.id) return { ok: false, error: "Not signed in" }
+
+  const rows = await db
+    .select({ id: workoutLogs.id })
+    .from(workoutLogs)
+    .where(and(eq(workoutLogs.id, workoutId), eq(workoutLogs.userId, session.user.id)))
+    .limit(1)
+
+  if (!rows[0]) return { ok: false, error: "Workout not found" }
+
+  await db
+    .update(workoutLogs)
+    .set({ sessionKindOverride: kind || null })
+    .where(eq(workoutLogs.id, workoutId))
+
+  revalidatePath(`/workout/${workoutId}`)
+  return { ok: true }
+}
