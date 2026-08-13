@@ -81,6 +81,62 @@ function cadenceTrend(
     : { text: `↓ ${abs} spm`, up: false }
 }
 
+// ─── Per-mode section ordering ─────────────────────────────────────────────
+// All seven sections below always exist for every mode (nothing is removed —
+// each section already hides itself when it has nothing to show). What
+// changes per mode is which ones lead and which sink toward the bottom, so
+// the most relevant thing for what the athlete is actually training for is
+// what they see first.
+type SectionKey =
+  | "todayAndUpcoming"
+  | "goalReadiness"
+  | "notebook"
+  | "performance"
+  | "planReviewLink"
+  | "trends"
+  | "recentWorkouts"
+
+const SECTION_ORDER: Record<string, SectionKey[]> = {
+  // No schedule, no race clock — lead with what actually happened and how
+  // it's trending. Training load (CTL/ATL/TSB) implies a peaking/tapering
+  // plan that doesn't exist here, so it sinks to the bottom.
+  just_run: [
+    "todayAndUpcoming", "recentWorkouts", "trends", "goalReadiness",
+    "notebook", "planReviewLink", "performance",
+  ],
+  // Race prep is exactly what CTL/ATL/TSB is for — peaking and tapering
+  // timing matters, so it stays high alongside the countdown and adherence.
+  race: [
+    "todayAndUpcoming", "performance", "goalReadiness", "planReviewLink",
+    "notebook", "trends", "recentWorkouts",
+  ],
+  // Building toward a new distance is about endurance and showing up, not
+  // peak/taper — CTL/ATL/TSB matters less here than the long-run progress
+  // that already lives in the goal-readiness card.
+  distance_milestone: [
+    "todayAndUpcoming", "goalReadiness", "notebook", "planReviewLink",
+    "trends", "performance", "recentWorkouts",
+  ],
+  // Speed-focused: quality-session performance and training load lead;
+  // long-run distance (in goalReadiness) matters less for a pure pace goal.
+  distance_at_pace: [
+    "todayAndUpcoming", "performance", "trends", "goalReadiness",
+    "notebook", "planReviewLink", "recentWorkouts",
+  ],
+  // Habit-building is about frequency, not peak fitness — goalReadiness now
+  // carries the weekly-frequency milestone front and center; CTL/ATL/TSB
+  // implies a race-prep framing this goal doesn't have.
+  habit: [
+    "todayAndUpcoming", "goalReadiness", "recentWorkouts", "notebook",
+    "trends", "planReviewLink", "performance",
+  ],
+  // Following a program without (yet) a specific goal type — original order.
+  default: [
+    "todayAndUpcoming", "goalReadiness", "notebook", "performance",
+    "planReviewLink", "trends", "recentWorkouts",
+  ],
+}
+
 export default async function DashboardPage() {
   const session = await auth()
   if (!session?.user?.id) redirect("/sign-in")
@@ -267,6 +323,495 @@ export default async function DashboardPage() {
       }]
     })
 
+  // ─── Section content ────────────────────────────────────────────────────
+  // Each is built once here, then assembled below in the mode-appropriate
+  // order. Every section already decides internally whether it has anything
+  // to show — nothing here is ever removed for a mode, only reordered.
+
+  const todayAndUpcomingSection = (
+    <div className="space-y-6">
+      {hasSchedule ? (
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">
+                {todayLabel}
+              </p>
+              <h2 className="text-lg font-bold text-gray-900 mt-1">Today&apos;s workout</h2>
+            </div>
+            <Link
+              href="/log"
+              className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            >
+              + Log workout
+            </Link>
+          </div>
+
+          {todayDay ? (
+            <Link href={`/plan/${todayStr}`} className="block mt-4 group">
+              {todayDay.isRestDay ? (
+                <p className="text-sm text-gray-400">Rest day — no sessions scheduled.</p>
+              ) : (
+                <div className="text-gray-700 text-sm leading-relaxed">
+                  {todaySessionSummary ?? "View sessions"}
+                </div>
+              )}
+              <p className="mt-3 text-sm font-medium text-orange-500 group-hover:underline">
+                View full workout →
+              </p>
+            </Link>
+          ) : (
+            <p className="mt-4 text-sm text-gray-400">No schedule found for today.</p>
+          )}
+        </section>
+      ) : (
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Go for a run</h2>
+              <p className="text-sm text-gray-400 mt-0.5">
+                No schedule — you&apos;re running on your own terms.
+              </p>
+            </div>
+            <Link
+              href="/log"
+              className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            >
+              + Log workout
+            </Link>
+          </div>
+          <Link
+            href="/goal/program"
+            className="mt-4 block text-sm font-medium text-orange-500 hover:underline"
+          >
+            Want a plan to follow? Build a program →
+          </Link>
+        </section>
+      )}
+
+      {hasSchedule && (
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-900">Next 7 days</h2>
+            <Link href={`/plan/week/${todayStr}`} className="text-xs font-semibold text-orange-500 hover:underline">
+              Planned vs actual →
+            </Link>
+          </div>
+          <ul className="space-y-0">
+            {upcomingDays.map((day) => {
+              const dateObj = new Date(day.date + "T00:00:00.000Z")
+              const weekLabel = `Week ${day.cycleWeekId}`
+              const firstSession = day.sessions[0]
+              const firstLine = firstSession ? firstSession.label : null
+
+              return (
+                <li key={day.id}>
+                  <Link
+                    href={`/plan/${day.date}`}
+                    className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded-xl transition-colors"
+                  >
+                    <div className="w-10 shrink-0 text-center">
+                      <p className="text-[11px] font-semibold uppercase text-gray-400 leading-none">
+                        {dateObj.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}
+                      </p>
+                      <p className="text-lg font-bold text-gray-800 leading-tight mt-0.5">
+                        {dateObj.getUTCDate()}
+                      </p>
+                    </div>
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">
+                        {weekLabel}
+                      </span>
+                      {day.isRestDay ? (
+                        <p className="text-sm text-gray-300">Rest</p>
+                      ) : firstLine ? (
+                        <p className="text-sm text-gray-700 truncate">{firstLine}</p>
+                      ) : (
+                        <p className="text-sm text-gray-300">No sessions</p>
+                      )}
+                    </div>
+                    <svg className="shrink-0 text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
+    </div>
+  )
+
+  const goalReadinessSection = kpis != null && (() => {
+    const r = computeReadiness(kpis, wellnessForReadiness, activeGoal, programContext)
+    // Only show components that actually count toward this goal's score —
+    // e.g. threshold pace is irrelevant to a pure consistency goal.
+    const componentList = [
+      r.components.aerobicEngine,
+      r.components.threshold,
+      r.components.longRun,
+      r.components.consistency,
+      r.components.frequency,
+      r.components.economy,
+    ].filter((c) => c.weight > 0)
+
+    const confidenceColor =
+      r.confidenceLabel === "High"    ? "text-green-600 bg-green-50" :
+      r.confidenceLabel === "Moderate" ? "text-amber-600 bg-amber-50" :
+                                         "text-gray-500 bg-gray-100"
+
+    // Explain delta in terms of components
+    let deltaExplain = ""
+    if (readinessDeltaComponents) {
+      const parts: string[] = []
+      const names: Record<string, string> = {
+        aerobicEngine: "aerobic engine",
+        threshold: "threshold",
+        longRun: "long run",
+        consistency: "consistency",
+      }
+      for (const [key, delta] of Object.entries(readinessDeltaComponents)) {
+        if (Math.abs(delta) >= 3) {
+          parts.push(`${delta > 0 ? "+" : ""}${delta} ${names[key] ?? key}`)
+        }
+      }
+      if (parts.length > 0) deltaExplain = parts.join(", ")
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* Readiness score card */}
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start justify-between mb-1">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Goal readiness</h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {activeGoal ? describeGoal(activeGoal, units) : "General fitness"}
+              </p>
+            </div>
+            <div className="text-right shrink-0 flex flex-col items-end gap-1">
+              <p className="text-3xl font-bold tabular-nums text-gray-900">{r.total}<span className="text-sm font-normal text-gray-400">/100</span></p>
+              <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${confidenceColor}`}>
+                {r.confidenceLabel} confidence
+              </span>
+            </div>
+          </div>
+
+          {/* Delta row */}
+          {readinessDelta != null && Math.abs(readinessDelta) >= 1 && (
+            <p className={`text-xs mb-3 ${readinessDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
+              {readinessDelta >= 0 ? `↑${readinessDelta}` : `↓${Math.abs(readinessDelta)}`} since last analysis
+              {deltaExplain ? ` · ${deltaExplain}` : ""}
+            </p>
+          )}
+
+          <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-1 mt-3">
+            <div className="h-2 rounded-full bg-orange-500 transition-all" style={{ width: `${r.total}%` }} />
+          </div>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-4">{r.milestoneLabel}</p>
+          <div className="space-y-2">
+            {componentList.map((c) => (
+              <div key={c.label} className="flex items-center gap-3">
+                <p className="text-[10px] font-semibold text-gray-500 w-24 shrink-0 truncate">{c.label}</p>
+                <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-1.5 rounded-full bg-orange-400" style={{ width: `${c.score}%` }} />
+                </div>
+                <span className="text-[10px] tabular-nums text-gray-400 w-8 text-right shrink-0">{c.score}</span>
+                <p className="w-28 text-[10px] text-gray-400 truncate hidden sm:block">{c.detail}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-3 border-t border-gray-50">
+            <Link href="/performance" className="text-xs font-medium text-orange-500 hover:underline">
+              View full performance breakdown →
+            </Link>
+          </div>
+        </section>
+
+        {/* Milestone Forecasting card — only meaningful with a goal to build a ladder toward */}
+        {r.milestoneStages.length > 1 ? (
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-5">Milestones</h2>
+          <div className="relative">
+            {r.milestoneStages.map((stage, idx) => {
+              const isGoal = stage.id === "goal"
+              const isCurrent = stage.id === "current"
+              const isLast = idx === r.milestoneStages.length - 1
+              const dotColor = stage.completed
+                ? "bg-green-500 border-green-500"
+                : stage.active
+                ? "bg-orange-500 border-orange-500"
+                : isCurrent
+                ? "bg-gray-900 border-gray-900"
+                : "bg-white border-gray-300"
+              const labelColor = stage.completed
+                ? "text-green-600"
+                : stage.active
+                ? "text-orange-500"
+                : isCurrent
+                ? "text-gray-900"
+                : "text-gray-400"
+
+              return (
+                <div key={stage.id} className="flex gap-4">
+                  {/* Timeline spine */}
+                  <div className="flex flex-col items-center w-5 shrink-0">
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 mt-0.5 ${dotColor}`} />
+                    {!isLast && (
+                      <div className={`w-px flex-1 my-1 ${stage.completed ? "bg-green-200" : "bg-gray-100"}`} />
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div className={`pb-5 flex-1 min-w-0 ${isLast ? "pb-0" : ""}`}>
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <p className={`text-sm font-bold ${labelColor}`}>{stage.label}</p>
+                      {stage.completed && (
+                        <span className="text-[10px] font-semibold text-green-600 bg-green-50 rounded-full px-2 py-0.5">Done</span>
+                      )}
+                      {stage.active && (
+                        <span className="text-[10px] font-semibold text-orange-500 bg-orange-50 rounded-full px-2 py-0.5">In progress</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-gray-400 mb-2">{stage.description}</p>
+
+                    {isGoal ? null : (
+                      <div className="space-y-1.5">
+                        {stage.targets.map((t) => (
+                          <div key={t.metric} className="flex items-start gap-2">
+                            <span className={`text-xs font-bold shrink-0 mt-0.5 ${
+                              t.achieved ? "text-green-500" : isCurrent ? "text-gray-500" : "text-gray-300"
+                            }`}>
+                              {isCurrent ? "·" : t.achieved ? "✓" : "·"}
+                            </span>
+                            <span className="text-[11px] text-gray-500 w-28 shrink-0">{t.metric}</span>
+                            <span className={`text-[11px] tabular-nums font-semibold ${
+                              isCurrent ? "text-gray-800" : t.achieved ? "text-green-700" : "text-gray-700"
+                            }`}>
+                              {t.current}
+                            </span>
+                            {!isCurrent && t.target && (
+                              <>
+                                <span className="text-[11px] text-gray-200 shrink-0">→</span>
+                                <span className="text-[11px] text-gray-400">{t.target}</span>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+        ) : (
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center">
+            <p className="text-sm text-gray-500 mb-3">
+              Set a goal to see a milestone roadmap toward it.
+            </p>
+            <Link
+              href="/goal"
+              className="inline-block text-sm font-semibold text-orange-500 hover:underline"
+            >
+              Set your goal →
+            </Link>
+          </section>
+        )}
+      </div>
+    )
+  })()
+
+  const notebookSection = notebook && (
+    <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-lg font-bold text-gray-900">Coach&apos;s Notebook</h2>
+        <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${
+          notebook.trajectory === "improving"   ? "bg-green-50 text-green-700" :
+          notebook.trajectory === "plateauing"  ? "bg-amber-50 text-amber-700" :
+          notebook.trajectory === "declining"   ? "bg-red-50 text-red-600" :
+                                                  "bg-gray-100 text-gray-500"
+        }`}>
+          {notebook.trajectory === "improving"         ? "Improving" :
+           notebook.trajectory === "plateauing"        ? "Plateauing" :
+           notebook.trajectory === "declining"         ? "Declining" :
+           "Insufficient data"}
+        </span>
+      </div>
+      <p className="text-sm text-gray-700 leading-relaxed mb-4">{notebook.summary}</p>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        {notebook.strengths.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600 mb-1.5">Strengths</p>
+            <ul className="space-y-1">
+              {notebook.strengths.map((s, i) => (
+                <li key={i} className="flex gap-1.5 text-xs text-gray-600">
+                  <span className="text-green-500 shrink-0 mt-0.5">↑</span>
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {notebook.limiters.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 mb-1.5">Limiters</p>
+            <ul className="space-y-1">
+              {notebook.limiters.map((l, i) => (
+                <li key={i} className="flex gap-1.5 text-xs text-gray-600">
+                  <span className="text-amber-500 shrink-0 mt-0.5">·</span>
+                  {l}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {notebook.nextUnlock && (
+        <div className="mt-4 pt-3 border-t border-gray-50">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">Next unlock</p>
+          <p className="text-xs text-gray-600">{notebook.nextUnlock}</p>
+        </div>
+      )}
+    </section>
+  )
+
+  const performanceSection = recentLogs.length > 0 && kpis != null && (() => {
+    const threshTrend = paceTrend(kpis.thresholdSpeedMps, kpis.thresholdSpeedMpsPrev)
+    const cadTempoTrend = cadenceTrend(kpis.cadenceTempo, kpis.cadenceTempoPrev)
+    const tsbLabel = perf.tsb != null
+      ? perf.tsb > 5 ? "Fresh" : perf.tsb < -10 ? "Fatigued" : "Neutral"
+      : null
+    return (
+      <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h2 className="text-lg font-bold text-gray-900 mb-4">Performance</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <KpiCard
+            label="Weekly mileage"
+            value={kpis.weeklyMileage != null ? fmtDistance(kpis.weeklyMileage) : "—"}
+          />
+          <KpiCard
+            label="Easy pace @140"
+            value={fmtPace(kpis.easyPaceAt140Mps)}
+            sub="HR-normalized"
+          />
+          <KpiCard
+            label="Aerobic efficiency"
+            value={kpis.aerobicEfficiency != null
+              ? fmtNum(kpis.aerobicEfficiency, 2, "m/min/bpm")
+              : "—"}
+          />
+          <KpiCard
+            label="HR drift"
+            value={kpis.hrDrift != null
+              ? `${kpis.hrDrift > 0 ? "+" : ""}${kpis.hrDrift.toFixed(1)} bpm`
+              : "—"}
+            sub="Last easy run"
+            highlight={kpis.hrDrift != null && kpis.hrDrift > 5}
+          />
+          <KpiCard
+            label="Threshold pace"
+            value={fmtPace(kpis.thresholdSpeedMps)}
+            sub="Last threshold"
+            trend={threshTrend?.text}
+            trendUp={threshTrend?.up}
+          />
+          <KpiCard
+            label="Long run"
+            value={fmtDistance(kpis.longRunDistanceM)}
+            sub="Last long run"
+          />
+          <KpiCard
+            label="Cadence — easy"
+            value={kpis.cadenceEasy != null ? `${kpis.cadenceEasy * 2} spm` : "—"}
+          />
+          <KpiCard
+            label="Cadence — tempo"
+            value={kpis.cadenceTempo != null ? `${kpis.cadenceTempo * 2} spm` : "—"}
+            trend={cadTempoTrend?.text}
+            trendUp={cadTempoTrend?.up}
+          />
+        </div>
+
+        {/* Fitness / Fatigue / Form (Banister CTL/ATL/TSB) */}
+        {perf.ctl != null && (
+          <div className="mt-5 pt-4 border-t border-gray-50">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-3">Training load (Banister model)</p>
+            <div className="grid grid-cols-3 gap-4">
+              <KpiCard
+                label="Fitness (CTL)"
+                value={String(perf.ctl)}
+                sub="42-day avg load"
+              />
+              <KpiCard
+                label="Fatigue (ATL)"
+                value={String(perf.atl ?? "—")}
+                sub="7-day avg load"
+                highlight={(perf.atl ?? 0) > (perf.ctl ?? 0) * 1.5}
+              />
+              <KpiCard
+                label="Form (TSB)"
+                value={perf.tsb != null ? `${perf.tsb > 0 ? "+" : ""}${perf.tsb}` : "—"}
+                sub={tsbLabel ?? undefined}
+                highlight={perf.tsb != null && perf.tsb < -10}
+              />
+            </div>
+          </div>
+        )}
+      </section>
+    )
+  })()
+
+  const planReviewSection = hasSchedule && (
+    <Link
+      href="/plan/review"
+      className="flex items-center justify-between gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 hover:border-orange-300 transition-colors group"
+    >
+      <div>
+        <p className="text-sm font-semibold text-gray-800 group-hover:text-orange-600">
+          How is my plan working?
+        </p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Have your coach review the last 4 weeks and suggest changes
+        </p>
+      </div>
+      <svg className="text-gray-300 group-hover:text-orange-400 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 18l6-6-6-6" />
+      </svg>
+    </Link>
+  )
+
+  const trendsSection = (
+    <TrendCharts
+      paceTrend={paceTrendData}
+      readinessTrend={readinessTrendData}
+    />
+  )
+
+  const recentWorkoutsSection = (
+    <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <h2 className="text-lg font-bold text-gray-900 mb-4">Recent workouts</h2>
+      <RecentWorkoutsCard logs={recentLogs} />
+    </section>
+  )
+
+  const sectionsByKey: Record<SectionKey, React.ReactNode> = {
+    todayAndUpcoming: todayAndUpcomingSection,
+    goalReadiness: goalReadinessSection,
+    notebook: notebookSection,
+    performance: performanceSection,
+    planReviewLink: planReviewSection,
+    trends: trendsSection,
+    recentWorkouts: recentWorkoutsSection,
+  }
+
+  const mode = isJustRun ? "just_run" : (activeGoal?.goalType ?? "default")
+  const order = SECTION_ORDER[mode] ?? SECTION_ORDER.default
+
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
       <div className="max-w-2xl mx-auto space-y-6">
@@ -319,476 +864,10 @@ export default async function DashboardPage() {
           </svg>
         </Link>
 
-        {/* Today's workout — replaced by a simple log prompt in "just run" mode */}
-        {hasSchedule ? (
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">
-                  {todayLabel}
-                </p>
-                <h2 className="text-lg font-bold text-gray-900 mt-1">Today&apos;s workout</h2>
-              </div>
-              <Link
-                href="/log"
-                className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
-              >
-                + Log workout
-              </Link>
-            </div>
-
-            {todayDay ? (
-              <Link href={`/plan/${todayStr}`} className="block mt-4 group">
-                {todayDay.isRestDay ? (
-                  <p className="text-sm text-gray-400">Rest day — no sessions scheduled.</p>
-                ) : (
-                  <div className="text-gray-700 text-sm leading-relaxed">
-                    {todaySessionSummary ?? "View sessions"}
-                  </div>
-                )}
-                <p className="mt-3 text-sm font-medium text-orange-500 group-hover:underline">
-                  View full workout →
-                </p>
-              </Link>
-            ) : (
-              <p className="mt-4 text-sm text-gray-400">No schedule found for today.</p>
-            )}
-          </section>
-        ) : (
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Go for a run</h2>
-                <p className="text-sm text-gray-400 mt-0.5">
-                  No schedule — you&apos;re running on your own terms.
-                </p>
-              </div>
-              <Link
-                href="/log"
-                className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
-              >
-                + Log workout
-              </Link>
-            </div>
-            <Link
-              href="/goal/program"
-              className="mt-4 block text-sm font-medium text-orange-500 hover:underline"
-            >
-              Want a plan to follow? Build a program →
-            </Link>
-          </section>
-        )}
-
-        {/* Upcoming workouts */}
-        {hasSchedule && (
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-900">Next 7 days</h2>
-            <Link href={`/plan/week/${todayStr}`} className="text-xs font-semibold text-orange-500 hover:underline">
-              Planned vs actual →
-            </Link>
-          </div>
-          <ul className="space-y-0">
-            {upcomingDays.map((day) => {
-              const dateObj = new Date(day.date + "T00:00:00.000Z")
-              const weekLabel = `Week ${day.cycleWeekId}`
-              const firstSession = day.sessions[0]
-              const firstLine = firstSession ? firstSession.label : null
-
-              return (
-                <li key={day.id}>
-                  <Link
-                    href={`/plan/${day.date}`}
-                    className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded-xl transition-colors"
-                  >
-                    <div className="w-10 shrink-0 text-center">
-                      <p className="text-[11px] font-semibold uppercase text-gray-400 leading-none">
-                        {dateObj.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}
-                      </p>
-                      <p className="text-lg font-bold text-gray-800 leading-tight mt-0.5">
-                        {dateObj.getUTCDate()}
-                      </p>
-                    </div>
-                    <div className="flex-1 min-w-0 pt-0.5">
-                      <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">
-                        {weekLabel}
-                      </span>
-                      {day.isRestDay ? (
-                        <p className="text-sm text-gray-300">Rest</p>
-                      ) : firstLine ? (
-                        <p className="text-sm text-gray-700 truncate">{firstLine}</p>
-                      ) : (
-                        <p className="text-sm text-gray-300">No sessions</p>
-                      )}
-                    </div>
-                    <svg className="shrink-0 text-gray-300" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 18l6-6-6-6" />
-                    </svg>
-                  </Link>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-        )}
-
-        {/* Goal Readiness Score + Milestone Forecasting */}
-        {kpis != null && (() => {
-          const r = computeReadiness(kpis, wellnessForReadiness, activeGoal, programContext)
-          // Only show components that actually count toward this goal's score —
-          // e.g. threshold pace is irrelevant to a pure consistency goal.
-          const componentList = [
-            r.components.aerobicEngine,
-            r.components.threshold,
-            r.components.longRun,
-            r.components.consistency,
-            r.components.frequency,
-            r.components.economy,
-          ].filter((c) => c.weight > 0)
-
-          const confidenceColor =
-            r.confidenceLabel === "High"    ? "text-green-600 bg-green-50" :
-            r.confidenceLabel === "Moderate" ? "text-amber-600 bg-amber-50" :
-                                               "text-gray-500 bg-gray-100"
-
-          // Explain delta in terms of components
-          let deltaExplain = ""
-          if (readinessDeltaComponents) {
-            const parts: string[] = []
-            const names: Record<string, string> = {
-              aerobicEngine: "aerobic engine",
-              threshold: "threshold",
-              longRun: "long run",
-              consistency: "consistency",
-            }
-            for (const [key, delta] of Object.entries(readinessDeltaComponents)) {
-              if (Math.abs(delta) >= 3) {
-                parts.push(`${delta > 0 ? "+" : ""}${delta} ${names[key] ?? key}`)
-              }
-            }
-            if (parts.length > 0) deltaExplain = parts.join(", ")
-          }
-
-          return (
-            <>
-              {/* Readiness score card */}
-              <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                <div className="flex items-start justify-between mb-1">
-                  <div>
-                    <h2 className="text-lg font-bold text-gray-900">Goal readiness</h2>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {activeGoal ? describeGoal(activeGoal, units) : "General fitness"}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                    <p className="text-3xl font-bold tabular-nums text-gray-900">{r.total}<span className="text-sm font-normal text-gray-400">/100</span></p>
-                    <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${confidenceColor}`}>
-                      {r.confidenceLabel} confidence
-                    </span>
-                  </div>
-                </div>
-
-                {/* Delta row */}
-                {readinessDelta != null && Math.abs(readinessDelta) >= 1 && (
-                  <p className={`text-xs mb-3 ${readinessDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
-                    {readinessDelta >= 0 ? `↑${readinessDelta}` : `↓${Math.abs(readinessDelta)}`} since last analysis
-                    {deltaExplain ? ` · ${deltaExplain}` : ""}
-                  </p>
-                )}
-
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-1 mt-3">
-                  <div className="h-2 rounded-full bg-orange-500 transition-all" style={{ width: `${r.total}%` }} />
-                </div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-4">{r.milestoneLabel}</p>
-                <div className="space-y-2">
-                  {componentList.map((c) => (
-                    <div key={c.label} className="flex items-center gap-3">
-                      <p className="text-[10px] font-semibold text-gray-500 w-24 shrink-0 truncate">{c.label}</p>
-                      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-1.5 rounded-full bg-orange-400" style={{ width: `${c.score}%` }} />
-                      </div>
-                      <span className="text-[10px] tabular-nums text-gray-400 w-8 text-right shrink-0">{c.score}</span>
-                      <p className="w-28 text-[10px] text-gray-400 truncate hidden sm:block">{c.detail}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 pt-3 border-t border-gray-50">
-                  <Link href="/performance" className="text-xs font-medium text-orange-500 hover:underline">
-                    View full performance breakdown →
-                  </Link>
-                </div>
-              </section>
-
-              {/* Milestone Forecasting card — only meaningful with a goal to build a ladder toward */}
-              {r.milestoneStages.length > 1 ? (
-              <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                <h2 className="text-lg font-bold text-gray-900 mb-5">Milestones</h2>
-                <div className="relative">
-                  {r.milestoneStages.map((stage, idx) => {
-                    const isGoal = stage.id === "goal"
-                    const isCurrent = stage.id === "current"
-                    const isLast = idx === r.milestoneStages.length - 1
-                    const dotColor = stage.completed
-                      ? "bg-green-500 border-green-500"
-                      : stage.active
-                      ? "bg-orange-500 border-orange-500"
-                      : isCurrent
-                      ? "bg-gray-900 border-gray-900"
-                      : "bg-white border-gray-300"
-                    const labelColor = stage.completed
-                      ? "text-green-600"
-                      : stage.active
-                      ? "text-orange-500"
-                      : isCurrent
-                      ? "text-gray-900"
-                      : "text-gray-400"
-
-                    return (
-                      <div key={stage.id} className="flex gap-4">
-                        {/* Timeline spine */}
-                        <div className="flex flex-col items-center w-5 shrink-0">
-                          <div className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 mt-0.5 ${dotColor}`} />
-                          {!isLast && (
-                            <div className={`w-px flex-1 my-1 ${stage.completed ? "bg-green-200" : "bg-gray-100"}`} />
-                          )}
-                        </div>
-
-                        {/* Content */}
-                        <div className={`pb-5 flex-1 min-w-0 ${isLast ? "pb-0" : ""}`}>
-                          <div className="flex items-baseline gap-2 flex-wrap">
-                            <p className={`text-sm font-bold ${labelColor}`}>{stage.label}</p>
-                            {stage.completed && (
-                              <span className="text-[10px] font-semibold text-green-600 bg-green-50 rounded-full px-2 py-0.5">Done</span>
-                            )}
-                            {stage.active && (
-                              <span className="text-[10px] font-semibold text-orange-500 bg-orange-50 rounded-full px-2 py-0.5">In progress</span>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-gray-400 mb-2">{stage.description}</p>
-
-                          {isGoal ? null : (
-                            <div className="space-y-1.5">
-                              {stage.targets.map((t) => (
-                                <div key={t.metric} className="flex items-start gap-2">
-                                  <span className={`text-xs font-bold shrink-0 mt-0.5 ${
-                                    t.achieved ? "text-green-500" : isCurrent ? "text-gray-500" : "text-gray-300"
-                                  }`}>
-                                    {isCurrent ? "·" : t.achieved ? "✓" : "·"}
-                                  </span>
-                                  <span className="text-[11px] text-gray-500 w-28 shrink-0">{t.metric}</span>
-                                  <span className={`text-[11px] tabular-nums font-semibold ${
-                                    isCurrent ? "text-gray-800" : t.achieved ? "text-green-700" : "text-gray-700"
-                                  }`}>
-                                    {t.current}
-                                  </span>
-                                  {!isCurrent && t.target && (
-                                    <>
-                                      <span className="text-[11px] text-gray-200 shrink-0">→</span>
-                                      <span className="text-[11px] text-gray-400">{t.target}</span>
-                                    </>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </section>
-              ) : (
-                <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center">
-                  <p className="text-sm text-gray-500 mb-3">
-                    Set a goal to see a milestone roadmap toward it.
-                  </p>
-                  <Link
-                    href="/goal"
-                    className="inline-block text-sm font-semibold text-orange-500 hover:underline"
-                  >
-                    Set your goal →
-                  </Link>
-                </section>
-              )}
-            </>
-          )
-        })()}
-
-        {/* Coach's Notebook */}
-        {notebook && (
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-center gap-2 mb-3">
-              <h2 className="text-lg font-bold text-gray-900">Coach&apos;s Notebook</h2>
-              <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${
-                notebook.trajectory === "improving"   ? "bg-green-50 text-green-700" :
-                notebook.trajectory === "plateauing"  ? "bg-amber-50 text-amber-700" :
-                notebook.trajectory === "declining"   ? "bg-red-50 text-red-600" :
-                                                        "bg-gray-100 text-gray-500"
-              }`}>
-                {notebook.trajectory === "improving"         ? "Improving" :
-                 notebook.trajectory === "plateauing"        ? "Plateauing" :
-                 notebook.trajectory === "declining"         ? "Declining" :
-                 "Insufficient data"}
-              </span>
-            </div>
-            <p className="text-sm text-gray-700 leading-relaxed mb-4">{notebook.summary}</p>
-
-            <div className="grid sm:grid-cols-2 gap-4">
-              {notebook.strengths.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600 mb-1.5">Strengths</p>
-                  <ul className="space-y-1">
-                    {notebook.strengths.map((s, i) => (
-                      <li key={i} className="flex gap-1.5 text-xs text-gray-600">
-                        <span className="text-green-500 shrink-0 mt-0.5">↑</span>
-                        {s}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {notebook.limiters.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 mb-1.5">Limiters</p>
-                  <ul className="space-y-1">
-                    {notebook.limiters.map((l, i) => (
-                      <li key={i} className="flex gap-1.5 text-xs text-gray-600">
-                        <span className="text-amber-500 shrink-0 mt-0.5">·</span>
-                        {l}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-
-            {notebook.nextUnlock && (
-              <div className="mt-4 pt-3 border-t border-gray-50">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-500 mb-1">Next unlock</p>
-                <p className="text-xs text-gray-600">{notebook.nextUnlock}</p>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Performance KPIs */}
-        {recentLogs.length > 0 && kpis != null && (() => {
-          const threshTrend = paceTrend(kpis.thresholdSpeedMps, kpis.thresholdSpeedMpsPrev)
-          const cadTempoTrend = cadenceTrend(kpis.cadenceTempo, kpis.cadenceTempoPrev)
-          const tsbLabel = perf.tsb != null
-            ? perf.tsb > 5 ? "Fresh" : perf.tsb < -10 ? "Fatigued" : "Neutral"
-            : null
-          return (
-            <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <h2 className="text-lg font-bold text-gray-900 mb-4">Performance</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <KpiCard
-                  label="Weekly mileage"
-                  value={kpis.weeklyMileage != null ? fmtDistance(kpis.weeklyMileage) : "—"}
-                />
-                <KpiCard
-                  label="Easy pace @140"
-                  value={fmtPace(kpis.easyPaceAt140Mps)}
-                  sub="HR-normalized"
-                />
-                <KpiCard
-                  label="Aerobic efficiency"
-                  value={kpis.aerobicEfficiency != null
-                    ? fmtNum(kpis.aerobicEfficiency, 2, "m/min/bpm")
-                    : "—"}
-                />
-                <KpiCard
-                  label="HR drift"
-                  value={kpis.hrDrift != null
-                    ? `${kpis.hrDrift > 0 ? "+" : ""}${kpis.hrDrift.toFixed(1)} bpm`
-                    : "—"}
-                  sub="Last easy run"
-                  highlight={kpis.hrDrift != null && kpis.hrDrift > 5}
-                />
-                <KpiCard
-                  label="Threshold pace"
-                  value={fmtPace(kpis.thresholdSpeedMps)}
-                  sub="Last threshold"
-                  trend={threshTrend?.text}
-                  trendUp={threshTrend?.up}
-                />
-                <KpiCard
-                  label="Long run"
-                  value={fmtDistance(kpis.longRunDistanceM)}
-                  sub="Last long run"
-                />
-                <KpiCard
-                  label="Cadence — easy"
-                  value={kpis.cadenceEasy != null ? `${kpis.cadenceEasy * 2} spm` : "—"}
-                />
-                <KpiCard
-                  label="Cadence — tempo"
-                  value={kpis.cadenceTempo != null ? `${kpis.cadenceTempo * 2} spm` : "—"}
-                  trend={cadTempoTrend?.text}
-                  trendUp={cadTempoTrend?.up}
-                />
-              </div>
-
-              {/* Fitness / Fatigue / Form (Banister CTL/ATL/TSB) */}
-              {perf.ctl != null && (
-                <div className="mt-5 pt-4 border-t border-gray-50">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-3">Training load (Banister model)</p>
-                  <div className="grid grid-cols-3 gap-4">
-                    <KpiCard
-                      label="Fitness (CTL)"
-                      value={String(perf.ctl)}
-                      sub="42-day avg load"
-                    />
-                    <KpiCard
-                      label="Fatigue (ATL)"
-                      value={String(perf.atl ?? "—")}
-                      sub="7-day avg load"
-                      highlight={(perf.atl ?? 0) > (perf.ctl ?? 0) * 1.5}
-                    />
-                    <KpiCard
-                      label="Form (TSB)"
-                      value={perf.tsb != null ? `${perf.tsb > 0 ? "+" : ""}${perf.tsb}` : "—"}
-                      sub={tsbLabel ?? undefined}
-                      highlight={perf.tsb != null && perf.tsb < -10}
-                    />
-                  </div>
-                </div>
-              )}
-            </section>
-          )
-        })()}
-
-        {/* Plan review — only meaningful when there is a plan to review */}
-        {hasSchedule && (
-          <Link
-            href="/plan/review"
-            className="flex items-center justify-between gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 hover:border-orange-300 transition-colors group"
-          >
-            <div>
-              <p className="text-sm font-semibold text-gray-800 group-hover:text-orange-600">
-                How is my plan working?
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Have your coach review the last 4 weeks and suggest changes
-              </p>
-            </div>
-            <svg className="text-gray-300 group-hover:text-orange-400 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </Link>
-        )}
-
-        {/* Training trends */}
-        <TrendCharts
-          paceTrend={paceTrendData}
-          readinessTrend={readinessTrendData}
-        />
-
-        {/* Recent workouts */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Recent workouts</h2>
-          <RecentWorkoutsCard logs={recentLogs} />
-        </section>
+        {/* Mode-ordered sections */}
+        {order.map((key) => (
+          <div key={key}>{sectionsByKey[key]}</div>
+        ))}
 
       </div>
     </main>
