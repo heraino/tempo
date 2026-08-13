@@ -12,8 +12,11 @@
  */
 
 import { db } from "@/lib/db"
-import { plannedSessions, sessionCompletions, plannedWorkoutDays } from "@/lib/db/schema"
-import { and, eq } from "drizzle-orm"
+import { plannedSessions, sessionCompletions, plannedWorkoutDays, workoutLogs } from "@/lib/db/schema"
+import { and, eq, gte, asc } from "drizzle-orm"
+import { isRunningSport } from "@/lib/analytics/classify"
+import { getOrCreatePlanVersion, getAthleteTimezone } from "@/lib/services/plan.service"
+import { resolveLocalDateForInstant } from "@/lib/plan/localDate"
 
 // ─── Complete ─────────────────────────────────────────────────────────────────
 
@@ -228,6 +231,85 @@ export async function findMatchingRunSession(
   if (sessions.length === 0) return null
   // Return lowest sequenceInDay (primary session of the day)
   return sessions.sort((a, b) => a.sequenceInDay - b.sequenceInDay)[0]
+}
+
+// ─── Reconciliation ───────────────────────────────────────────────────────────
+
+/**
+ * Reconcile a single workout against the athlete's schedule: if a planned run
+ * session exists on the workout's local calendar date, mark it completed and
+ * link this workout to it.
+ *
+ * Returns false (does nothing) when the workout isn't a running activity,
+ * the athlete has no plan, or no matching planned session exists for that
+ * date — all ordinary outcomes, not error conditions. Callers that need this
+ * to be non-fatal (e.g. the upload pipeline, where the workout log itself
+ * must still save) should wrap the call in their own try/catch.
+ */
+export async function reconcileWorkoutWithPlan(
+  userId: string,
+  workoutId: string,
+  sport: string | null,
+  startTime: Date
+): Promise<boolean> {
+  if (!isRunningSport(sport)) return false
+
+  const [planVersion, tz] = await Promise.all([
+    getOrCreatePlanVersion(userId),
+    getAthleteTimezone(userId),
+  ])
+  if (!planVersion) return false
+
+  const scheduledDate = resolveLocalDateForInstant(startTime, tz)
+  const match = await findMatchingRunSession(userId, planVersion.id, scheduledDate)
+  if (!match) return false
+
+  await completeSession(match.id, userId, workoutId, startTime)
+  return true
+}
+
+/**
+ * Retroactively reconcile an athlete's recent workout history against their
+ * schedule — repairs adherence data for workouts logged before a plan existed,
+ * or before this reconciliation existed at all. Idempotent: a workout already
+ * linked via session_completions is skipped, so re-running (e.g. on every
+ * plan review) is always safe and cheap after the first pass.
+ */
+export async function backfillPlanReconciliation(
+  userId: string,
+  sinceDate: Date
+): Promise<{ scanned: number; matched: number }> {
+  const [logs, alreadyLinked] = await Promise.all([
+    db
+      .select({ id: workoutLogs.id, sport: workoutLogs.sport, startTime: workoutLogs.startTime })
+      .from(workoutLogs)
+      .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, sinceDate)))
+      .orderBy(asc(workoutLogs.startTime)),
+    db
+      .select({ workoutLogId: sessionCompletions.workoutLogId })
+      .from(sessionCompletions)
+      .where(eq(sessionCompletions.userId, userId)),
+  ])
+
+  const linkedIds = new Set(alreadyLinked.map((r) => r.workoutLogId).filter((id) => id != null))
+
+  let matched = 0
+  for (const log of logs) {
+    if (linkedIds.has(log.id)) continue
+    try {
+      const didMatch = await reconcileWorkoutWithPlan(
+        userId,
+        log.id,
+        log.sport,
+        new Date(log.startTime)
+      )
+      if (didMatch) matched++
+    } catch (err) {
+      console.error(`plan reconciliation backfill failed for workout ${log.id}:`, err)
+    }
+  }
+
+  return { scanned: logs.length, matched }
 }
 
 // ─── Day-level edits ──────────────────────────────────────────────────────────

@@ -11,8 +11,9 @@ import { and, eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { nebiusChat } from "@/lib/ai/nebius"
-import { gatherPlanReviewEvidence } from "@/lib/services/planReview.service"
+import { gatherPlanReviewEvidence, REVIEW_WINDOW_DAYS } from "@/lib/services/planReview.service"
 import { getActivePlanVersion, getAthleteTimezone } from "@/lib/services/plan.service"
+import { backfillPlanReconciliation } from "@/lib/services/completion.service"
 import { resolveLocalDate } from "@/lib/plan/localDate"
 import { applyPlanMutation, PlanMutationError, type PlanMutationOp } from "@/lib/plan/mutations"
 import { planMutationSchema } from "@/lib/validation/planMutation"
@@ -94,6 +95,15 @@ export async function generatePlanReview(): Promise<{
 
   const tz = await getAthleteTimezone(userId)
   const todayStr = resolveLocalDate(tz)
+
+  // Self-healing: reconcile any workouts logged before this linkage existed
+  // (or before the athlete's plan did) against the schedule, so adherence
+  // reflects real training rather than whether each run happened to get
+  // linked at upload time. Idempotent and cheap after the first run.
+  const backfillSince = new Date(Date.now() - (REVIEW_WINDOW_DAYS + 7) * 24 * 60 * 60 * 1000)
+  await backfillPlanReconciliation(userId, backfillSince).catch((err) => {
+    console.error("plan reconciliation backfill failed (review continues with existing data):", err)
+  })
 
   const gathered = await gatherPlanReviewEvidence(userId, todayStr)
   if (!gathered) {

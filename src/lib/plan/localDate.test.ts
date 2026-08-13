@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { resolveLocalDate } from "./localDate"
+import { resolveLocalDate, resolveLocalDateForInstant } from "./localDate"
 
 describe("resolveLocalDate", () => {
   beforeEach(() => vi.useFakeTimers())
@@ -42,5 +42,23 @@ describe("resolveLocalDate", () => {
     // At 2026-03-08T06:30Z, New York is EDT (UTC-4) → 2026-03-08 02:30 local.
     vi.setSystemTime(new Date("2026-03-08T06:30:00.000Z"))
     expect(resolveLocalDate("America/New_York")).toBe("2026-03-08")
+  })
+})
+
+describe("resolveLocalDateForInstant", () => {
+  it("resolves an arbitrary past instant, independent of system time", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-12T12:00:00.000Z"))
+    // A workout logged well before "now" still resolves to its own local date
+    const workoutInstant = new Date("2026-01-13T06:00:00.000Z")
+    expect(resolveLocalDateForInstant(workoutInstant, "America/Los_Angeles")).toBe("2026-01-12")
+    vi.useRealTimers()
+  })
+
+  it("agrees with resolveLocalDate when the instant is the current moment", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-14T16:00:00.000Z"))
+    expect(resolveLocalDateForInstant(new Date(), "Asia/Tokyo")).toBe(resolveLocalDate("Asia/Tokyo"))
+    vi.useRealTimers()
   })
 })
