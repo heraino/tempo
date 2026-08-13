@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { saveGoal } from "./actions"
+import { SegmentedTimeInput } from "@/components/SegmentedTimeInput"
 import {
   GOAL_TYPES,
   GOAL_TYPE_LABELS,
@@ -176,13 +177,14 @@ export function GoalForm({ initial, units, onSaved }: Props) {
             Target finish time{" "}
             <span className="text-gray-300 font-normal normal-case">(optional)</span>
           </label>
-          <input
-            type="text"
+          <SegmentedTimeInput
             name="targetDuration"
             defaultValue={durationToInputValue(initial?.targetDurationSecs)}
-            placeholder="1:45:00"
-            inputMode="numeric"
-            className={inputCls}
+            segments={[
+              { key: "h", label: "H", max: 99 },
+              { key: "m", label: "MM", max: 59 },
+              { key: "s", label: "SS", max: 59 },
+            ]}
           />
           <p className="text-xs text-gray-400 mt-1">
             Leave blank if you just want to finish.
@@ -194,13 +196,13 @@ export function GoalForm({ initial, units, onSaved }: Props) {
       {showPace && (
         <div>
           <label className={labelCls}>Target pace ({paceUnitLabel})</label>
-          <input
-            type="text"
+          <SegmentedTimeInput
             name="targetPace"
             defaultValue={paceToInputValue(initial?.targetPaceMinPerKm ?? null, units)}
-            placeholder={units === "metric" ? "5:00" : "8:00"}
-            inputMode="numeric"
-            className={inputCls}
+            segments={[
+              { key: "m", label: "MM", max: 59 },
+              { key: "s", label: "SS", max: 59 },
+            ]}
           />
         </div>
       )}
