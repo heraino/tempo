@@ -171,6 +171,29 @@ export function durationToInputValue(secs: number | null | undefined): string {
   return fmtGoalDuration(secs) ?? ""
 }
 
+/**
+ * Resolve the athlete's chosen target distance to meters from GoalForm's raw
+ * field state: either a preset already expressed in meters, or a "custom"
+ * value typed in the display unit system. Shared by the client (for live
+ * pace/time auto-calculation) and the server action (for the saved value),
+ * so the two can never disagree on what a given selection means.
+ */
+export function resolveDistanceMeters(
+  distanceKey: string,
+  customDistanceStr: string,
+  units: "imperial" | "metric",
+): number | null {
+  if (distanceKey === "custom") {
+    const value = parseFloat(customDistanceStr)
+    if (isNaN(value) || value <= 0) return null
+    return units === "metric" ? value * 1000 : value * METERS_PER_MILE
+  }
+  if (!distanceKey) return null
+  const value = parseFloat(distanceKey)
+  if (isNaN(value) || value <= 0) return null
+  return value
+}
+
 // ─── Derived values ───────────────────────────────────────────────────────────
 
 /**
@@ -183,6 +206,19 @@ export function impliedPaceMinPerKm(
 ): number | null {
   if (!distanceM || !durationSecs || distanceM <= 0 || durationSecs <= 0) return null
   return durationSecs / 60 / (distanceM / 1000)
+}
+
+/**
+ * Duration implied by a distance + pace pair, in seconds — the inverse of
+ * impliedPaceMinPerKm. Returns null when either input is missing or
+ * non-positive.
+ */
+export function impliedDurationSecs(
+  distanceM: number | null | undefined,
+  paceMinPerKm: number | null | undefined,
+): number | null {
+  if (!distanceM || !paceMinPerKm || distanceM <= 0 || paceMinPerKm <= 0) return null
+  return paceMinPerKm * 60 * (distanceM / 1000)
 }
 
 /**

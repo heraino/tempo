@@ -8,6 +8,7 @@ import {
   GOAL_TYPES,
   parseDurationToSecs,
   parsePaceToMinPerKm,
+  resolveDistanceMeters,
   suggestPlanTitle,
 } from "@/lib/goals/goal"
 
@@ -42,18 +43,9 @@ export async function saveGoal(
   const goalType = str(formData, "goalType")
 
   // Distance arrives as meters from a preset, or as a custom value in display units
-  let targetDistanceM: number | undefined
-  const presetMeters = str(formData, "targetDistanceM")
-  const customDistance = str(formData, "customDistance")
-  if (presetMeters === "custom" && customDistance) {
-    const value = parseFloat(customDistance)
-    if (!isNaN(value) && value > 0) {
-      targetDistanceM = units === "metric" ? value * 1000 : value * 1609.344
-    }
-  } else if (presetMeters && presetMeters !== "custom") {
-    const value = parseFloat(presetMeters)
-    if (!isNaN(value) && value > 0) targetDistanceM = value
-  }
+  const distanceKey = str(formData, "targetDistanceM") ?? ""
+  const customDistance = str(formData, "customDistance") ?? ""
+  const targetDistanceM = resolveDistanceMeters(distanceKey, customDistance, units) ?? undefined
 
   const durationRaw = str(formData, "targetDuration")
   const targetDurationSecs = durationRaw ? parseDurationToSecs(durationRaw) : null

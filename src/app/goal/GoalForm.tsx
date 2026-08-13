@@ -13,6 +13,11 @@ import {
   METERS_PER_MILE,
   paceToInputValue,
   durationToInputValue,
+  resolveDistanceMeters,
+  parsePaceToMinPerKm,
+  parseDurationToSecs,
+  impliedDurationSecs,
+  impliedPaceMinPerKm,
   type GoalType,
 } from "@/lib/goals/goal"
 
@@ -78,8 +83,55 @@ export function GoalForm({ initial, units, onSaved }: Props) {
   const showDistance = goalType !== "habit"
   const showDate = goalType !== "habit"
   const showDuration = goalType === "race" || goalType === "distance_at_pace"
-  const showPace = goalType === "distance_at_pace"
+  const showPace = goalType === "race" || goalType === "distance_at_pace"
   const showRuns = goalType === "habit"
+
+  // ── Live pace ↔ finish-time auto-calculation ──
+  // Both fields are lifted here (rather than left uncontrolled inside
+  // SegmentedTimeInput) so entering one can compute and display the other.
+  // The computation runs directly inside each field's onChange — not in an
+  // effect — so there's no risk of the two fields' derivations looping off
+  // each other; each handler only ever writes the *other* field.
+  const [durationStr, setDurationStr] = useState(() =>
+    durationToInputValue(initial?.targetDurationSecs),
+  )
+  const [paceStr, setPaceStr] = useState(() =>
+    paceToInputValue(initial?.targetPaceMinPerKm ?? null, units),
+  )
+
+  const resolvedDistanceM = resolveDistanceMeters(distanceKey, customDistance, units)
+
+  function handleDurationChange(v: string) {
+    setDurationStr(v)
+    if (resolvedDistanceM == null) return
+    const pace = impliedPaceMinPerKm(resolvedDistanceM, parseDurationToSecs(v))
+    if (pace != null) setPaceStr(paceToInputValue(pace, units))
+  }
+
+  function handlePaceChange(v: string) {
+    setPaceStr(v)
+    if (resolvedDistanceM == null) return
+    const secs = impliedDurationSecs(resolvedDistanceM, parsePaceToMinPerKm(v, units))
+    if (secs != null) setDurationStr(durationToInputValue(secs))
+  }
+
+  // Changing the distance after a pace or time is already set should update
+  // the other field for the new distance too — prefer recomputing time from
+  // the pace already entered; fall back to recomputing pace from time.
+  function handleDistanceChange(nextDistanceM: number | null) {
+    if (nextDistanceM == null) return
+    const pace = parsePaceToMinPerKm(paceStr, units)
+    if (pace != null) {
+      const secs = impliedDurationSecs(nextDistanceM, pace)
+      if (secs != null) setDurationStr(durationToInputValue(secs))
+      return
+    }
+    const durationSecs = parseDurationToSecs(durationStr)
+    if (durationSecs != null) {
+      const impliedPace = impliedPaceMinPerKm(nextDistanceM, durationSecs)
+      if (impliedPace != null) setPaceStr(paceToInputValue(impliedPace, units))
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -138,7 +190,11 @@ export function GoalForm({ initial, units, onSaved }: Props) {
           <select
             name="targetDistanceM"
             value={distanceKey}
-            onChange={(e) => setDistanceKey(e.target.value)}
+            onChange={(e) => {
+              const key = e.target.value
+              setDistanceKey(key)
+              handleDistanceChange(resolveDistanceMeters(key, customDistance, units))
+            }}
             className={inputCls}
           >
             <option value="">— choose —</option>
@@ -156,7 +212,11 @@ export function GoalForm({ initial, units, onSaved }: Props) {
                 type="number"
                 name="customDistance"
                 value={customDistance}
-                onChange={(e) => setCustomDistance(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setCustomDistance(val)
+                  handleDistanceChange(resolveDistanceMeters("custom", val, units))
+                }}
                 step="0.01"
                 min="0.1"
                 placeholder={units === "metric" ? "e.g. 8" : "e.g. 5"}
@@ -177,7 +237,8 @@ export function GoalForm({ initial, units, onSaved }: Props) {
           </label>
           <SegmentedTimeInput
             name="targetDuration"
-            defaultValue={durationToInputValue(initial?.targetDurationSecs)}
+            value={durationStr}
+            onChange={handleDurationChange}
             segments={[
               { key: "h", label: "H", max: 99 },
               { key: "m", label: "MM", max: 59 },
@@ -185,9 +246,9 @@ export function GoalForm({ initial, units, onSaved }: Props) {
             ]}
           />
           <p className="text-xs text-gray-400 mt-1">
-            {goalType === "distance_at_pace"
+            {resolvedDistanceM != null
               ? "Enter this, a pace below, or both — we'll fill in the other."
-              : "Leave blank if you just want to finish."}
+              : "Leave blank if you just want to finish. Pick a distance above to auto-fill this from a pace."}
           </p>
         </div>
       )}
@@ -195,10 +256,14 @@ export function GoalForm({ initial, units, onSaved }: Props) {
       {/* Pace */}
       {showPace && (
         <div>
-          <label className={labelCls}>Target pace ({paceUnitLabel})</label>
+          <label className={labelCls}>
+            Target pace ({paceUnitLabel}){" "}
+            <span className="text-gray-300 font-normal normal-case">(optional)</span>
+          </label>
           <SegmentedTimeInput
             name="targetPace"
-            defaultValue={paceToInputValue(initial?.targetPaceMinPerKm ?? null, units)}
+            value={paceStr}
+            onChange={handlePaceChange}
             segments={[
               { key: "m", label: "MM", max: 59 },
               { key: "s", label: "SS", max: 59 },

@@ -5,7 +5,9 @@ import {
   paceToInputValue,
   durationToInputValue,
   impliedPaceMinPerKm,
+  impliedDurationSecs,
   resolveTargetPaceMinPerKm,
+  resolveDistanceMeters,
   weeksBetween,
   daysBetween,
   describeGoal,
@@ -111,6 +113,55 @@ describe("impliedPaceMinPerKm", () => {
     expect(impliedPaceMinPerKm(0, 6300)).toBeNull()
     expect(impliedPaceMinPerKm(21097.5, 0)).toBeNull()
     expect(impliedPaceMinPerKm(-100, 600)).toBeNull()
+  })
+})
+
+describe("impliedDurationSecs", () => {
+  it("derives finish time from distance and pace", () => {
+    // Half marathon (21097.5 m) at 4.977 min/km ≈ 1:45:00
+    expect(impliedDurationSecs(21097.5, 4.977)).toBeCloseTo(6300, -1)
+  })
+
+  it("is the exact inverse of impliedPaceMinPerKm", () => {
+    const distanceM = 10000
+    const durationSecs = 3000
+    const pace = impliedPaceMinPerKm(distanceM, durationSecs)
+    expect(impliedDurationSecs(distanceM, pace)).toBeCloseTo(durationSecs, 6)
+  })
+
+  it("returns null for missing or non-positive inputs", () => {
+    expect(impliedDurationSecs(null, 5)).toBeNull()
+    expect(impliedDurationSecs(10000, null)).toBeNull()
+    expect(impliedDurationSecs(0, 5)).toBeNull()
+    expect(impliedDurationSecs(10000, 0)).toBeNull()
+    expect(impliedDurationSecs(-100, 5)).toBeNull()
+  })
+})
+
+describe("resolveDistanceMeters", () => {
+  it("resolves a preset (already meters) distance key", () => {
+    expect(resolveDistanceMeters("21097.5", "", "imperial")).toBeCloseTo(21097.5, 6)
+  })
+
+  it("converts a custom imperial value from miles to meters", () => {
+    expect(resolveDistanceMeters("custom", "5", "imperial")).toBeCloseTo(5 * METERS_PER_MILE, 6)
+  })
+
+  it("converts a custom metric value from km to meters", () => {
+    expect(resolveDistanceMeters("custom", "8", "metric")).toBeCloseTo(8000, 6)
+  })
+
+  it("returns null when nothing is selected", () => {
+    expect(resolveDistanceMeters("", "", "imperial")).toBeNull()
+  })
+
+  it("returns null for a custom value with no number entered", () => {
+    expect(resolveDistanceMeters("custom", "", "imperial")).toBeNull()
+  })
+
+  it("returns null for a non-positive custom value", () => {
+    expect(resolveDistanceMeters("custom", "0", "imperial")).toBeNull()
+    expect(resolveDistanceMeters("custom", "-3", "imperial")).toBeNull()
   })
 })
 
@@ -237,6 +288,65 @@ describe("describeGoal", () => {
   it("does not leak a date suffix when no target date is set", () => {
     expect(describeGoal({ goalType: "distance_milestone", targetDistanceM: 10000 }))
       .not.toContain("by")
+  })
+})
+
+describe("pace ↔ finish-time auto-calculation (mirrors GoalForm's onChange handlers)", () => {
+  // GoalForm computes the sibling field directly inside each field's onChange
+  // using exactly these functions — these tests exercise that same chain
+  // end-to-end: a segment-input string in, a segment-input string out.
+
+  function deriveDurationFromPace(
+    paceInput: string,
+    distanceM: number,
+    units: "imperial" | "metric",
+  ): string {
+    const pace = parsePaceToMinPerKm(paceInput, units)
+    const secs = impliedDurationSecs(distanceM, pace)
+    return durationToInputValue(secs)
+  }
+
+  function derivePaceFromDuration(
+    durationInput: string,
+    distanceM: number,
+    units: "imperial" | "metric",
+  ): string {
+    const secs = parseDurationToSecs(durationInput)
+    const pace = impliedPaceMinPerKm(distanceM, secs)
+    return paceToInputValue(pace, units)
+  }
+
+  it("typing an imperial pace for a half marathon produces the matching finish time", () => {
+    const halfMarathonM = 21097.5
+    expect(deriveDurationFromPace("8:00", halfMarathonM, "imperial")).toBe("1:44:53")
+  })
+
+  it("typing a finish time for a 10K produces the matching pace", () => {
+    const tenKM = 10000
+    expect(derivePaceFromDuration("50:00", tenKM, "imperial")).toBe("8:03")
+  })
+
+  it("round-trips: pace -> time -> pace recovers the original (within a second of rounding)", () => {
+    const distanceM = 5000
+    const derivedDuration = deriveDurationFromPace("7:30", distanceM, "imperial")
+    const roundTripped = derivePaceFromDuration(derivedDuration, distanceM, "imperial")
+    expect(roundTripped).toBe("7:30")
+  })
+
+  it("produces nothing when the distance is not yet resolved", () => {
+    // resolveDistanceMeters returns null for an unselected distance; the
+    // caller (GoalForm) skips the derivation entirely in that case, mirrored
+    // here by confirming resolveDistanceMeters actually reports null.
+    expect(resolveDistanceMeters("", "", "imperial")).toBeNull()
+  })
+
+  it("recomputes for a new distance using the already-entered pace", () => {
+    // Simulates GoalForm's handleDistanceChange preferring pace as the source
+    const pace = "8:00"
+    const fiveK = deriveDurationFromPace(pace, 5000, "imperial")
+    const tenK = deriveDurationFromPace(pace, 10000, "imperial")
+    expect(fiveK).not.toBe(tenK)
+    expect(parseDurationToSecs(tenK)).toBeGreaterThan(parseDurationToSecs(fiveK)!)
   })
 })
 
