@@ -432,7 +432,11 @@ export default async function DashboardPage() {
 
         {/* Goal Readiness Score + Milestone Forecasting */}
         {kpis != null && (() => {
-          const r = computeReadiness(kpis, wellnessForReadiness)
+          const r = computeReadiness(
+            kpis,
+            wellnessForReadiness,
+            activeGoal ? describeGoal(activeGoal, units) : null
+          )
           const componentList = [
             r.components.aerobicEngine,
             r.components.threshold,

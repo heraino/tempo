@@ -151,7 +151,11 @@ function freshnessModifier(wellness: WellnessForReadiness | null | undefined): n
   return Math.max(0.75, Math.min(1.05, mod))
 }
 
-export function computeReadiness(kpis: KpiSnapshot, wellness?: WellnessForReadiness | null): ReadinessResult {
+export function computeReadiness(
+  kpis: KpiSnapshot,
+  wellness?: WellnessForReadiness | null,
+  goalDescription?: string | null
+): ReadinessResult {
   const ae  = kpis.easyPaceAt140Mps   ? lerp(kpis.easyPaceAt140Mps,   E_FLOOR, E_ADV)   : 0
   const th  = kpis.thresholdSpeedMps  ? lerp(kpis.thresholdSpeedMps,  T_FLOOR, T_ADV)   : 0
   const lr  = kpis.longRunDistanceM   ? lerp(kpis.longRunDistanceM,   LR_FLOOR, LR_ADV) : 0
@@ -285,7 +289,7 @@ export function computeReadiness(kpis: KpiSnapshot, wellness?: WellnessForReadin
   const advStage: MilestoneStage = {
     id: "advanced",
     label: "Race-ready",
-    description: "7:20/mi half marathon plausible",
+    description: goalDescription ? `On pace for: ${goalDescription}` : "Advanced fitness reached",
     completed: passAdv,
     active: passM3 && !passAdv,
     targets: [
@@ -304,7 +308,7 @@ export function computeReadiness(kpis: KpiSnapshot, wellness?: WellnessForReadin
   const goalStage: MilestoneStage = {
     id: "goal",
     label: "Goal",
-    description: "Half marathon · 7:20/mi · age 50",
+    description: goalDescription ?? "No goal set yet",
     completed: false,
     active: false,
     targets: [],
