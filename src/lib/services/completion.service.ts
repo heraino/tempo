@@ -31,10 +31,15 @@ export async function completeSession(
   workoutLogId: string | null,
   completedAt: Date
 ) {
-  await db
+  const updated = await db
     .update(plannedSessions)
     .set({ status: "completed", updatedAt: completedAt })
     .where(and(eq(plannedSessions.id, plannedSessionId), eq(plannedSessions.userId, userId)))
+    .returning({ id: plannedSessions.id })
+
+  // No row matched (wrong id, or the session belongs to a different user) —
+  // bail out before creating a session_completions link to it.
+  if (updated.length === 0) return null
 
   const rows = await db
     .insert(sessionCompletions)

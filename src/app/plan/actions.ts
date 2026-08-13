@@ -9,6 +9,7 @@ import {
   rescheduleSession,
   changeSessionType,
   addAdHocSession,
+  completeSession,
 } from "@/lib/services/completion.service"
 import { getOrCreatePlanVersion } from "@/lib/services/plan.service"
 import { SESSION_KINDS } from "@/lib/validation/plan"
@@ -60,6 +61,28 @@ export async function restoreSessionAction(
 
   const updated = await restoreSession(sessionId, session.user.id)
   if (!updated) return { ok: false, error: "Only skipped sessions can be restored" }
+
+  revalidateDay(date.data)
+  return { ok: true }
+}
+
+/**
+ * Manually mark a session done without a linked workout log — for sessions
+ * that never go through the FIT upload pipeline (strength, elastic, or any
+ * run the athlete doesn't want to attach a file to).
+ */
+export async function completeSessionAction(
+  sessionId: string,
+  dateStr: string,
+): Promise<Result> {
+  const session = await auth()
+  if (!session?.user?.id) return { ok: false, error: "Not signed in" }
+
+  const date = dateSchema.safeParse(dateStr)
+  if (!date.success) return { ok: false, error: "Invalid date" }
+
+  const updated = await completeSession(sessionId, session.user.id, null, new Date())
+  if (!updated) return { ok: false, error: "Session not found" }
 
   revalidateDay(date.data)
   return { ok: true }

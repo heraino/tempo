@@ -380,7 +380,12 @@ export default async function DashboardPage() {
         {/* Upcoming workouts */}
         {hasSchedule && (
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Next 7 days</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-900">Next 7 days</h2>
+            <Link href={`/plan/week/${todayStr}`} className="text-xs font-semibold text-orange-500 hover:underline">
+              Planned vs actual →
+            </Link>
+          </div>
           <ul className="space-y-0">
             {upcomingDays.map((day) => {
               const dateObj = new Date(day.date + "T00:00:00.000Z")

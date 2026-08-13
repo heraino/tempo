@@ -1,6 +1,6 @@
 import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
-import { eq, desc } from "drizzle-orm"
+import { eq, desc, and, gte, lte } from "drizzle-orm"
 import { reconcileWorkoutWithPlan } from "@/lib/services/completion.service"
 
 export async function getWorkoutById(id: string, userId: string) {
@@ -43,6 +43,26 @@ export async function createWorkout(
   }
 
   return workout
+}
+
+/** Workouts with a startTime in [from, to] (inclusive), oldest first. */
+export async function getWorkoutsBetween(userId: string, from: Date, to: Date) {
+  return db
+    .select({
+      id: workoutLogs.id,
+      sport: workoutLogs.sport,
+      subSport: workoutLogs.subSport,
+      startTime: workoutLogs.startTime,
+      totalDistanceM: workoutLogs.totalDistanceM,
+      totalTimerSecs: workoutLogs.totalTimerSecs,
+      avgSpeedMps: workoutLogs.avgSpeedMps,
+      avgHr: workoutLogs.avgHr,
+      sessionKindOverride: workoutLogs.sessionKindOverride,
+      observedSessionKind: workoutLogs.observedSessionKind,
+    })
+    .from(workoutLogs)
+    .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, from), lte(workoutLogs.startTime, to)))
+    .orderBy(desc(workoutLogs.startTime))
 }
 
 export async function getComparableWorkouts(

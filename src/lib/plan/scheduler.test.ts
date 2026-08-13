@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from "vitest"
 // Mock the module so pure-function tests run without a real DB connection.
 vi.mock("@/lib/db", () => ({ db: {} }))
 
-import { resolveCycleWeek, resolveDayPlans, getWeekdayName, addDays } from "./scheduler"
+import { resolveCycleWeek, resolveDayPlans, getWeekdayName, addDays, mondayOfWeek } from "./scheduler"
 import { SEED_PLAN_JSON } from "./seed"
 import type { PlanJson, CycleWeek } from "./types"
 
@@ -383,6 +383,27 @@ describe("getWeekdayName", () => {
   it("correctly identifies Jan 1 after year boundary", () => {
     // 2027-01-01 is a Friday
     expect(getWeekdayName("2027-01-01")).toBe("Friday")
+  })
+})
+
+describe("mondayOfWeek", () => {
+  it("returns the same date when already a Monday", () => {
+    expect(mondayOfWeek("2026-07-06")).toBe("2026-07-06")
+  })
+
+  it("returns the preceding Monday for any weekday in that week", () => {
+    expect(mondayOfWeek("2026-07-08")).toBe("2026-07-06") // Wednesday
+    expect(mondayOfWeek("2026-07-12")).toBe("2026-07-06") // Sunday
+  })
+
+  it("crosses a month boundary correctly", () => {
+    // 2026-08-01 is a Saturday; that week's Monday is 2026-07-27
+    expect(mondayOfWeek("2026-08-01")).toBe("2026-07-27")
+  })
+
+  it("crosses a year boundary correctly", () => {
+    // 2027-01-01 is a Friday; that week's Monday is 2026-12-28
+    expect(mondayOfWeek("2027-01-01")).toBe("2026-12-28")
   })
 })
 

@@ -47,6 +47,13 @@ export function getWeekdayName(dateStr: string): Weekday {
   return WEEKDAY_NAMES[parseDateStr(dateStr).getUTCDay()]
 }
 
+/** The Monday (YYYY-MM-DD) of the week containing a date string. */
+export function mondayOfWeek(dateStr: string): string {
+  const dow = parseDateStr(dateStr).getUTCDay() // 0 = Sunday
+  const offset = dow === 0 ? -6 : 1 - dow
+  return addDays(dateStr, offset)
+}
+
 // ─── Cycle resolver (pure) ────────────────────────────────────────────────────
 
 /**

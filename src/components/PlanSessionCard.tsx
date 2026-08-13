@@ -7,6 +7,7 @@ import {
   restoreSessionAction,
   moveSessionAction,
   changeSessionTypeAction,
+  completeSessionAction,
 } from "@/app/plan/actions"
 import { sessionKindMeta, SWAPPABLE_KINDS } from "@/lib/plan/sessionKinds"
 
@@ -139,6 +140,11 @@ export function PlanSessionCard({ session, dateStr }: Props) {
                     </MenuItem>
                   ) : (
                     <>
+                      <MenuItem
+                        onClick={() => run(() => completeSessionAction(session.id, dateStr))}
+                      >
+                        Mark done
+                      </MenuItem>
                       <MenuItem onClick={() => setMenu("swap")}>Change type…</MenuItem>
                       <MenuItem onClick={() => setMenu("move")}>Move to…</MenuItem>
                       <div className="border-t border-gray-50" />
