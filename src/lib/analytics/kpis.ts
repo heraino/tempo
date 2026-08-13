@@ -40,6 +40,12 @@ export interface KpiSnapshot {
   cadenceTempo: number | null
   cadenceTempoPrev: number | null
   recentWorkoutCount: number
+  /**
+   * Average running days per week over the trailing 4 weeks. Null only when
+   * there is no running history at all to judge from; 0 is a real, meaningful
+   * value (running history exists, but none of it falls in the last 28 days).
+   */
+  weeklyRunFrequency: number | null
   // Running dynamics (from most recent workout that recorded them)
   vertOscMm: number | null
   stanceTimeMs: number | null
@@ -57,10 +63,16 @@ export function computeKpiSnapshot(
   )
 
   const sevenDaysAgo = nowMs - 7 * 24 * 60 * 60 * 1000
+  const twentyEightDaysAgo = nowMs - 28 * 24 * 60 * 60 * 1000
 
   const weeklyM = sorted
     .filter((w) => new Date(w.startTime).getTime() >= sevenDaysAgo)
     .reduce((sum, w) => sum + (w.totalDistanceM ?? 0), 0)
+
+  const runsInLast28Days = sorted.filter(
+    (w) => new Date(w.startTime).getTime() >= twentyEightDaysAgo
+  ).length
+  const weeklyRunFrequency = sorted.length > 0 ? Math.round((runsInLast28Days / 4) * 10) / 10 : null
 
   const lastEasy = sorted.find(
     (w) => w.observedSessionKind === "easy" || w.observedSessionKind === "recovery"
@@ -135,6 +147,7 @@ export function computeKpiSnapshot(
     cadenceTempo: lastTempo?.qualityCadence ?? lastTempo?.avgCadence ?? null,
     cadenceTempoPrev: prevTempo?.qualityCadence ?? prevTempo?.avgCadence ?? null,
     recentWorkoutCount: workouts.length,
+    weeklyRunFrequency,
     vertOscMm: lastWithDynamics?.avgVerticalOscillationMm ?? null,
     stanceTimeMs: lastWithDynamics?.avgStanceTimeMs ?? null,
     stanceTimePct: lastWithDynamics?.avgStanceTimePct ?? null,

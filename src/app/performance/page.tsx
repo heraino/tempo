@@ -2,8 +2,23 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
-import { computeReadiness } from "@/lib/analytics/readiness"
+import { computeReadiness, programContextFromPlanJson, type MilestoneStage } from "@/lib/analytics/readiness"
+import { getActiveGoal } from "@/lib/services/goal.service"
+import { getActivePlanVersion } from "@/lib/services/plan.service"
+import { getUserPreferences } from "@/lib/services/userPreferences.service"
+import { describeGoal } from "@/lib/goals/goal"
 import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
+
+/** Formatted target string for a metric at a given milestone stage, or null
+ *  when there's no goal (and so no ladder) to read a target from. */
+function targetAt(stages: MilestoneStage[], stageId: string, metric: string): string | null {
+  return stages.find((s) => s.id === stageId)?.targets.find((t) => t.metric === metric)?.target ?? null
+}
+
+/** Whether the athlete's current value has already met a stage's target. */
+function achievedAt(stages: MilestoneStage[], stageId: string, metric: string): boolean {
+  return stages.find((s) => s.id === stageId)?.targets.find((t) => t.metric === metric)?.achieved ?? false
+}
 
 function StatRow({
   label,
@@ -68,7 +83,12 @@ export default async function PerformancePage() {
   if (!session?.user?.id) redirect("/sign-in")
   const userId = session.user.id
 
-  const kpis = await getKpiSnapshot(userId).catch(() => null)
+  const [kpis, activeGoal, activePlanVersion, prefs] = await Promise.all([
+    getKpiSnapshot(userId).catch(() => null),
+    getActiveGoal(userId).catch(() => null),
+    getActivePlanVersion(userId).catch(() => null),
+    getUserPreferences(userId),
+  ])
 
   if (!kpis) {
     return (
@@ -81,15 +101,13 @@ export default async function PerformancePage() {
     )
   }
 
-  const r = computeReadiness(kpis)
+  const units = prefs.unitsSystem as "imperial" | "metric"
+  const programContext = activePlanVersion ? programContextFromPlanJson(activePlanVersion.planJson) : null
+  const r = computeReadiness(kpis, null, activeGoal, programContext)
+  const hasLadder = r.milestoneStages.length > 1
 
   const cadenceEasySpm   = kpis.cadenceEasy  != null ? kpis.cadenceEasy  * 2 : null
   const cadenceTempoSpm  = kpis.cadenceTempo != null ? kpis.cadenceTempo * 2 : null
-
-  // Milestone reference paces for color coding
-  const E_M1_MPS = 1609.344 / (10.75 * 60)
-  const T_M1_MPS = 1609.344 / (8.5   * 60)
-  const LR_M1_M  = 8 * 1609.344
 
   const confidenceColor =
     r.confidenceLabel === "High"    ? "text-green-600 bg-green-50" :
@@ -107,7 +125,7 @@ export default async function PerformancePage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Performance</h1>
               <p className="text-sm text-gray-400 mt-0.5">
-                Goal: half marathon · 7:20/mi · age 50
+                {activeGoal ? `Goal: ${describeGoal(activeGoal, units)}` : "General fitness"}
               </p>
             </div>
             <div className="text-right">
@@ -125,11 +143,18 @@ export default async function PerformancePage() {
             <div className="h-2 rounded-full bg-orange-500" style={{ width: `${r.total}%` }} />
           </div>
           <div className="space-y-2.5">
-            <ScoreBar score={r.components.aerobicEngine.score} label={`Aerobic engine · ${r.components.aerobicEngine.weight}%`} />
-            <ScoreBar score={r.components.threshold.score}    label={`Threshold · ${r.components.threshold.weight}%`} />
-            <ScoreBar score={r.components.longRun.score}      label={`Long run · ${r.components.longRun.weight}%`} />
-            <ScoreBar score={r.components.consistency.score}  label={`Consistency · ${r.components.consistency.weight}%`} />
-            <ScoreBar score={r.components.economy.score}      label={`Economy · ${r.components.economy.weight}%`} />
+            {[
+              r.components.aerobicEngine,
+              r.components.threshold,
+              r.components.longRun,
+              r.components.consistency,
+              r.components.frequency,
+              r.components.economy,
+            ]
+              .filter((c) => c.weight > 0)
+              .map((c) => (
+                <ScoreBar key={c.label} score={c.score} label={`${c.label} · ${c.weight}%`} />
+              ))}
           </div>
           <p className="text-[10px] text-gray-400 mt-4">
             Confidence {r.confidence}/100 · based on {kpis.recentWorkoutCount} recent workouts
@@ -137,14 +162,14 @@ export default async function PerformancePage() {
         </Section>
 
         {/* System 1: Aerobic Engine */}
-        <Section eyebrow="System 1 · 35% weight" title="Aerobic Engine">
+        <Section eyebrow={`System 1 · ${r.components.aerobicEngine.weight}% weight`} title="Aerobic Engine">
           {kpis.easyPaceAt140Mps ? (
             <>
               <StatRow
                 label="Easy pace @140 bpm"
                 value={fmtPace(kpis.easyPaceAt140Mps)}
                 sub="HR-normalized to 140 bpm"
-                highlight={(kpis.easyPaceAt140Mps >= E_M1_MPS) ? "good" : undefined}
+                highlight={achievedAt(r.milestoneStages, "m1", "Aerobic engine") ? "good" : undefined}
               />
               {kpis.easyPaceAt145Mps != null && (
                 <StatRow
@@ -189,29 +214,35 @@ export default async function PerformancePage() {
             <p className="text-sm text-gray-400">No easy run data yet. Log an easy run for aerobic engine metrics.</p>
           )}
 
-          <div className="mt-4 pt-3 border-t border-gray-50">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Milestone targets</p>
-            <div className="flex flex-wrap gap-3 text-[11px]">
-              <span className="text-gray-500">M1: <span className="font-semibold text-gray-700">&lt;10:45/mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">M2: <span className="font-semibold text-gray-700">&lt;10:00/mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">M3: <span className="font-semibold text-gray-700">&lt;9:30/mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">Race-ready: <span className="font-semibold text-gray-700">8:45–9:30/mi</span></span>
+          {hasLadder && (
+            <div className="mt-4 pt-3 border-t border-gray-50">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Milestone targets</p>
+              <div className="flex flex-wrap gap-3 text-[11px]">
+                {(["m1", "m2", "m3", "goal"] as const).map((stageId, i) => {
+                  const target = targetAt(r.milestoneStages, stageId, "Aerobic engine")
+                  if (!target) return null
+                  const stageLabel = stageId === "goal" ? "Goal" : `M${i + 1}`
+                  return (
+                    <span key={stageId} className="text-gray-500">
+                      {i > 0 && <span className="text-gray-300 mr-3">·</span>}
+                      {stageLabel}: <span className="font-semibold text-gray-700">{target}</span>
+                    </span>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </Section>
 
         {/* System 2: Threshold */}
-        <Section eyebrow="System 2 · 25% weight" title="Threshold">
+        <Section eyebrow={`System 2 · ${r.components.threshold.weight}% weight`} title="Threshold">
           {kpis.thresholdSpeedMps ? (
             <>
               <StatRow
                 label="Threshold pace"
                 value={fmtPace(kpis.thresholdSpeedMps)}
                 sub="Quality laps only (no warmup/cooldown)"
-                highlight={(kpis.thresholdSpeedMps >= T_M1_MPS) ? "good" : undefined}
+                highlight={achievedAt(r.milestoneStages, "m1", "Threshold") ? "good" : undefined}
               />
               {kpis.thresholdSpeedMpsPrev != null && (
                 (() => {
@@ -241,28 +272,34 @@ export default async function PerformancePage() {
             <p className="text-sm text-gray-400">No threshold or tempo run data yet.</p>
           )}
 
-          <div className="mt-4 pt-3 border-t border-gray-50">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Milestone targets</p>
-            <div className="flex flex-wrap gap-3 text-[11px]">
-              <span className="text-gray-500">M1: <span className="font-semibold text-gray-700">&lt;8:30/mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">M2: <span className="font-semibold text-gray-700">&lt;8:00/mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">M3: <span className="font-semibold text-gray-700">7:30–7:40/mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">Race-ready: <span className="font-semibold text-gray-700">6:55–7:10/mi</span></span>
+          {hasLadder && (
+            <div className="mt-4 pt-3 border-t border-gray-50">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Milestone targets</p>
+              <div className="flex flex-wrap gap-3 text-[11px]">
+                {(["m1", "m2", "m3", "goal"] as const).map((stageId, i) => {
+                  const target = targetAt(r.milestoneStages, stageId, "Threshold")
+                  if (!target) return null
+                  const stageLabel = stageId === "goal" ? "Goal" : `M${i + 1}`
+                  return (
+                    <span key={stageId} className="text-gray-500">
+                      {i > 0 && <span className="text-gray-300 mr-3">·</span>}
+                      {stageLabel}: <span className="font-semibold text-gray-700">{target}</span>
+                    </span>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </Section>
 
         {/* System 3: Long Run */}
-        <Section eyebrow="System 3 · 20% weight" title="Long Run">
+        <Section eyebrow={`System 3 · ${r.components.longRun.weight}% weight`} title="Long Run">
           {kpis.longRunDistanceM ? (
             <>
               <StatRow
                 label="Last long run"
                 value={fmtDistance(kpis.longRunDistanceM)}
-                highlight={(kpis.longRunDistanceM >= LR_M1_M) ? "good" : undefined}
+                highlight={achievedAt(r.milestoneStages, "m1", "Long run") ? "good" : undefined}
               />
               {kpis.weeklyMileage != null && (
                 <StatRow
@@ -276,22 +313,28 @@ export default async function PerformancePage() {
             <p className="text-sm text-gray-400">No long run data yet. Log a long run to see durability metrics.</p>
           )}
 
-          <div className="mt-4 pt-3 border-t border-gray-50">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Milestone targets</p>
-            <div className="flex flex-wrap gap-3 text-[11px]">
-              <span className="text-gray-500">M1: <span className="font-semibold text-gray-700">8–9 mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">M2: <span className="font-semibold text-gray-700">10–11 mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">M3: <span className="font-semibold text-gray-700">12–13 mi</span></span>
-              <span className="text-gray-300">·</span>
-              <span className="text-gray-500">Race-ready: <span className="font-semibold text-gray-700">14 mi</span></span>
+          {hasLadder && (
+            <div className="mt-4 pt-3 border-t border-gray-50">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Milestone targets</p>
+              <div className="flex flex-wrap gap-3 text-[11px]">
+                {(["m1", "m2", "m3", "goal"] as const).map((stageId, i) => {
+                  const target = targetAt(r.milestoneStages, stageId, "Long run")
+                  if (!target) return null
+                  const stageLabel = stageId === "goal" ? "Goal" : `M${i + 1}`
+                  return (
+                    <span key={stageId} className="text-gray-500">
+                      {i > 0 && <span className="text-gray-300 mr-3">·</span>}
+                      {stageLabel}: <span className="font-semibold text-gray-700">{target}</span>
+                    </span>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </Section>
 
         {/* System 4: Running Economy */}
-        <Section eyebrow="System 4 · 5% weight" title="Running Economy">
+        <Section eyebrow={`System 4 · ${r.components.economy.weight}% weight`} title="Running Economy">
           {cadenceEasySpm == null && cadenceTempoSpm == null && kpis.vertOscMm == null ? (
             <p className="text-sm text-gray-400">No economy data yet. Upload workouts from a GPS watch to see these metrics.</p>
           ) : (

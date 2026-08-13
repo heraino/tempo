@@ -4,14 +4,14 @@ import Link from "next/link"
 import { db } from "@/lib/db"
 import { workoutLogs, coachingAnalyses, dailyWellness } from "@/lib/db/schema"
 import { eq, desc, and, gte, asc, lte } from "drizzle-orm"
-import { getScheduleRange, getAthleteTimezone } from "@/lib/services/plan.service"
+import { getScheduleRange, getAthleteTimezone, getActivePlanVersion } from "@/lib/services/plan.service"
 import { resolveLocalDate } from "@/lib/plan/localDate"
 import { RecentWorkoutsCard } from "@/components/RecentWorkoutsCard"
 import { TrendCharts } from "@/components/TrendCharts"
 import type { PacePoint, ReadinessPoint } from "@/components/TrendCharts"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
-import { computeReadiness } from "@/lib/analytics/readiness"
+import { computeReadiness, programContextFromPlanJson } from "@/lib/analytics/readiness"
 import { computePerformance } from "@/lib/analytics/performance"
 import { getActiveGoal } from "@/lib/services/goal.service"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
@@ -94,7 +94,7 @@ export default async function DashboardPage() {
 
   const sevenDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook, trendWorkouts, wellnessRows, perf, activeGoal, dashPrefs] = await Promise.all([
+  const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook, trendWorkouts, wellnessRows, perf, activeGoal, dashPrefs, activePlanVersion] = await Promise.all([
     getScheduleRange(userId, todayStr, 8),
     db
       .select({
@@ -172,9 +172,11 @@ export default async function DashboardPage() {
     computePerformance(userId).catch(() => ({ ctl: null, atl: null, tsb: null })),
     getActiveGoal(userId).catch(() => null),
     getUserPreferences(userId),
+    getActivePlanVersion(userId).catch(() => null),
   ])
 
   const units = dashPrefs.unitsSystem as "imperial" | "metric"
+  const programContext = activePlanVersion ? programContextFromPlanJson(activePlanVersion.planJson) : null
   const goalWeeksRemaining =
     activeGoal?.targetDate != null ? weeksBetween(todayStr, activeGoal.targetDate) : null
   const goalDaysRemaining =
@@ -432,18 +434,17 @@ export default async function DashboardPage() {
 
         {/* Goal Readiness Score + Milestone Forecasting */}
         {kpis != null && (() => {
-          const r = computeReadiness(
-            kpis,
-            wellnessForReadiness,
-            activeGoal ? describeGoal(activeGoal, units) : null
-          )
+          const r = computeReadiness(kpis, wellnessForReadiness, activeGoal, programContext)
+          // Only show components that actually count toward this goal's score —
+          // e.g. threshold pace is irrelevant to a pure consistency goal.
           const componentList = [
             r.components.aerobicEngine,
             r.components.threshold,
             r.components.longRun,
             r.components.consistency,
+            r.components.frequency,
             r.components.economy,
-          ]
+          ].filter((c) => c.weight > 0)
 
           const confidenceColor =
             r.confidenceLabel === "High"    ? "text-green-600 bg-green-50" :
@@ -475,7 +476,9 @@ export default async function DashboardPage() {
                 <div className="flex items-start justify-between mb-1">
                   <div>
                     <h2 className="text-lg font-bold text-gray-900">Goal readiness</h2>
-                    <p className="text-xs text-gray-400 mt-0.5">Half marathon · 7:20/mi · age 50</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {activeGoal ? describeGoal(activeGoal, units) : "General fitness"}
+                    </p>
                   </div>
                   <div className="text-right shrink-0 flex flex-col items-end gap-1">
                     <p className="text-3xl font-bold tabular-nums text-gray-900">{r.total}<span className="text-sm font-normal text-gray-400">/100</span></p>
@@ -516,7 +519,8 @@ export default async function DashboardPage() {
                 </div>
               </section>
 
-              {/* Milestone Forecasting card */}
+              {/* Milestone Forecasting card — only meaningful with a goal to build a ladder toward */}
+              {r.milestoneStages.length > 1 ? (
               <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-5">Milestones</h2>
                 <div className="relative">
@@ -593,6 +597,19 @@ export default async function DashboardPage() {
                   })}
                 </div>
               </section>
+              ) : (
+                <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center">
+                  <p className="text-sm text-gray-500 mb-3">
+                    Set a goal to see a milestone roadmap toward it.
+                  </p>
+                  <Link
+                    href="/goal"
+                    className="inline-block text-sm font-semibold text-orange-500 hover:underline"
+                  >
+                    Set your goal →
+                  </Link>
+                </section>
+              )}
             </>
           )
         })()}

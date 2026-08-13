@@ -147,9 +147,9 @@ async function generateAndSaveNotebook(
   kpis: Awaited<ReturnType<typeof getKpiSnapshot>>,
   workoutDateStr: string,
 ): Promise<void> {
-  const readiness = computeReadiness(kpis)
-  const wellness = await getWellnessContext(userId, workoutDateStr).catch(() => null)
   const goal = await getActiveGoal(userId).catch(() => null)
+  const readiness = computeReadiness(kpis, null, goal)
+  const wellness = await getWellnessContext(userId, workoutDateStr).catch(() => null)
   const goalCtx = buildGoalContext(goal, workoutDateStr)
 
   // Fetch last 5 workout analyses for context
@@ -478,7 +478,7 @@ Respond with ONLY a valid JSON object, no markdown, no prose outside the JSON. U
 
   // Save readiness snapshot (deterministic, no LLM)
   if (kpis) {
-    const readiness = computeReadiness(kpis)
+    const readiness = computeReadiness(kpis, null, activeGoal)
     await db.insert(coachingAnalyses).values({
       id: crypto.randomUUID(),
       userId,

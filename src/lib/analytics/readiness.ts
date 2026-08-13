@@ -1,5 +1,7 @@
 import type { KpiSnapshot } from "./kpis"
 import { fmtPace, fmtDistance } from "@/lib/fmt"
+import { resolveTargetPaceMinPerKm, describeGoal, METERS_PER_MILE, type TrainingGoalLike } from "@/lib/goals/goal"
+import { validatePlanJson } from "@/lib/validation/plan"
 
 export interface WellnessForReadiness {
   nightBefore: {
@@ -11,6 +13,29 @@ export interface WellnessForReadiness {
     hrv: number | null
     sleepScore: number | null
   } | null
+}
+
+/** Peak weekly mileage from the athlete's active program, if any — used as a
+ *  real, plan-derived mileage target in preference to a distance-based guess. */
+export interface MilestoneProgramContext {
+  peakWeeklyMileageM?: number | null
+}
+
+/**
+ * Derive a MilestoneProgramContext from a plan version's raw plan_json —
+ * the peak build-week mileage across its progression blocks, if any. Shared
+ * by every page that computes goal-relative readiness against an active plan.
+ */
+export function programContextFromPlanJson(planJson: unknown): MilestoneProgramContext | null {
+  try {
+    const plan = validatePlanJson(planJson)
+    const blocks = plan.progressionBlocks
+    if (!blocks || blocks.length === 0) return null
+    const peakMi = Math.max(...blocks.map((b) => b.buildMaxMi))
+    return peakMi > 0 ? { peakWeeklyMileageM: peakMi * METERS_PER_MILE } : null
+  } catch {
+    return null
+  }
 }
 
 export interface ReadinessComponent {
@@ -28,7 +53,7 @@ export interface MilestoneTarget {
 }
 
 export interface MilestoneStage {
-  id: "current" | "m1" | "m2" | "m3" | "advanced" | "goal"
+  id: "current" | "m1" | "m2" | "m3" | "goal"
   label: string
   description: string
   completed: boolean
@@ -38,7 +63,7 @@ export interface MilestoneStage {
 
 export interface ReadinessResult {
   total: number
-  milestone: "pre-m1" | "m1" | "m2" | "m3" | "advanced"
+  milestone: "pre-m1" | "m1" | "m2" | "m3" | "goal"
   milestoneLabel: string
   confidence: number
   confidenceLabel: "Low" | "Moderate" | "High"
@@ -47,63 +72,116 @@ export interface ReadinessResult {
     threshold: ReadinessComponent
     longRun: ReadinessComponent
     consistency: ReadinessComponent
+    frequency: ReadinessComponent
     economy: ReadinessComponent
   }
   milestoneStages: MilestoneStage[]
 }
 
-// ─── Reference speeds / distances ─────────────────────────────────────────────
-const E_FLOOR = 1609.344 / (11.5  * 60)   // 11:30/mi — score floor
-const E_M1    = 1609.344 / (10.75 * 60)   // 10:45/mi
-const E_M2    = 1609.344 / (10.0  * 60)   // 10:00/mi
-const E_M3    = 1609.344 / (9.5   * 60)   //  9:30/mi
-const E_ADV   = 1609.344 / (8.75  * 60)   //  8:45/mi — score ceiling
-
-const T_FLOOR = 1609.344 / (9.5   * 60)   //  9:30/mi
-const T_M1    = 1609.344 / (8.5   * 60)   //  8:30/mi
-const T_M2    = 1609.344 / (8.0   * 60)   //  8:00/mi
-const T_M3    = 1609.344 / (7.583 * 60)   //  7:35/mi (midpoint 7:30–7:40)
-const T_ADV   = 1609.344 / (7.167 * 60)   //  7:10/mi
-
-const LR_FLOOR = 5  * 1609.344
-const LR_M1    = 8  * 1609.344
-const LR_M2    = 10 * 1609.344
-const LR_M3    = 12 * 1609.344
-const LR_ADV   = 14 * 1609.344
-
-const CON_TARGET = 25 * 1609.344
-
-const CAD_FLOOR = 150
-const CAD_ADV   = 172
-
 function clamp(x: number) { return Math.max(0, Math.min(100, x)) }
-function lerp(x: number, lo: number, hi: number) { return clamp(((x - lo) / (hi - lo)) * 100) }
 
-function speedTarget(
-  value: number | null,
-  threshold: number,
-  targetLabel: string,
-  metricLabel: string,
-): MilestoneTarget {
+// ─── Generic beginner floors ────────────────────────────────────────────────
+// These represent a "just starting out" reference point and hold regardless
+// of the athlete's specific goal — the low end of the scale doesn't need to
+// change based on what you're training for.
+const E_FLOOR = 1609.344 / (11.5 * 60)    // 11:30/mi
+const T_FLOOR = 1609.344 / (9.5  * 60)    //  9:30/mi
+const LR_FLOOR = 5 * 1609.344              //  5 mi
+const MILEAGE_FLOOR = 0
+const FREQ_FLOOR = 0
+const CAD_FLOOR = 150
+
+// ─── Generic ceilings, used only when no goal-derived target exists ────────
+const E_ADV_FALLBACK = 1609.344 / (8.75 * 60)   //  8:45/mi
+const T_ADV_FALLBACK = 1609.344 / (7.167 * 60)  //  7:10/mi
+const LR_ADV_FALLBACK = 14 * 1609.344            // 14 mi
+const MILEAGE_ADV_FALLBACK = 25 * 1609.344       // 25 mi/wk
+const FREQ_FALLBACK = 4                          //  4 runs/wk
+const CAD_ADV = 172
+
+// Approximations used only to fill in a target the goal doesn't state
+// directly — clearly a simplification, not a personalized prescription:
+//   easy pace  ≈ 85% of threshold speed (a commonly used rough ratio)
+//   peak weekly mileage ≈ 3× the long run, absent a real program to read from
+const EASY_TO_THRESHOLD_RATIO = 0.85
+const MILEAGE_TO_LONGRUN_RATIO = 3
+
+// ─── Per-goal-type weighting ─────────────────────────────────────────────────
+// Percentage points, summing to 100. "economy" (cadence) stays a small,
+// constant slice everywhere — it's a supplementary signal, not goal-specific.
+interface GoalWeights {
+  aerobic: number
+  threshold: number
+  longRun: number
+  mileage: number
+  frequency: number
+  economy: number
+}
+
+const WEIGHTS: Record<string, GoalWeights> = {
+  race:               { aerobic: 30, threshold: 30, longRun: 20, mileage: 15, frequency: 0,  economy: 5 },
+  distance_milestone: { aerobic: 30, threshold: 10, longRun: 40, mileage: 15, frequency: 0,  economy: 5 },
+  distance_at_pace:   { aerobic: 25, threshold: 40, longRun: 15, mileage: 15, frequency: 0,  economy: 5 },
+  habit:              { aerobic: 20, threshold: 0,  longRun: 5,  mileage: 20, frequency: 50, economy: 5 },
+  // No goal set (or an unrecognized goal type) — the original general-fitness blend.
+  default:            { aerobic: 35, threshold: 25, longRun: 20, mileage: 15, frequency: 0,  economy: 5 },
+}
+
+function weightsFor(goalType: string | null | undefined): GoalWeights {
+  return WEIGHTS[goalType ?? "default"] ?? WEIGHTS.default
+}
+
+// ─── Scales: floor/ceiling per metric, ceiling derived from the goal when possible ──
+interface MetricScale {
+  floor: number
+  ceiling: number
+}
+
+function scale(target: number | null, floor: number, fallbackCeiling: number): MetricScale {
+  if (target != null && target > floor) return { floor, ceiling: target }
+  return { floor, ceiling: fallbackCeiling }
+}
+
+interface Scales {
+  aerobic: MetricScale
+  threshold: MetricScale
+  longRun: MetricScale
+  mileage: MetricScale
+  frequency: MetricScale
+  economy: MetricScale
+}
+
+/** Derive goal-relative scales. All null/absent inputs fall back to the generic scale. */
+function deriveScales(
+  goal: TrainingGoalLike | null | undefined,
+  program: MilestoneProgramContext | null | undefined,
+): Scales {
+  const targetThresholdPaceMinPerKm = goal ? resolveTargetPaceMinPerKm(goal) : null
+  const targetThresholdSpeedMps = targetThresholdPaceMinPerKm ? 1000 / (targetThresholdPaceMinPerKm * 60) : null
+  const targetEasySpeedMps = targetThresholdSpeedMps ? targetThresholdSpeedMps * EASY_TO_THRESHOLD_RATIO : null
+  const targetLongRunM = goal?.targetDistanceM ?? null
+  const targetMileageM =
+    program?.peakWeeklyMileageM ?? (targetLongRunM ? targetLongRunM * MILEAGE_TO_LONGRUN_RATIO : null)
+  const targetFrequency = goal?.goalType === "habit" ? (goal.targetRunsPerWeek ?? null) : null
+
   return {
-    metric: metricLabel,
-    current: value ? fmtPace(value) : "—",
-    target: targetLabel,
-    achieved: (value ?? 0) >= threshold,
+    aerobic: scale(targetEasySpeedMps, E_FLOOR, E_ADV_FALLBACK),
+    threshold: scale(targetThresholdSpeedMps, T_FLOOR, T_ADV_FALLBACK),
+    longRun: scale(targetLongRunM, LR_FLOOR, LR_ADV_FALLBACK),
+    mileage: scale(targetMileageM, MILEAGE_FLOOR, MILEAGE_ADV_FALLBACK),
+    frequency: scale(targetFrequency, FREQ_FLOOR, FREQ_FALLBACK),
+    economy: { floor: CAD_FLOOR, ceiling: CAD_ADV },
   }
 }
 
-function distTarget(
-  value: number | null,
-  threshold: number,
-  targetLabel: string,
-): MilestoneTarget {
-  return {
-    metric: "Long run",
-    current: value ? fmtDistance(value) : "—",
-    target: targetLabel,
-    achieved: (value ?? 0) >= threshold,
-  }
+function scoreOn(value: number | null, s: MetricScale): number {
+  if (value == null) return 0
+  if (s.ceiling <= s.floor) return value >= s.ceiling ? 100 : 0
+  return clamp(((value - s.floor) / (s.ceiling - s.floor)) * 100)
+}
+
+function valueAtFraction(s: MetricScale, fraction: number): number {
+  return s.floor + (s.ceiling - s.floor) * fraction
 }
 
 function computeConfidence(kpis: KpiSnapshot): { score: number; label: "Low" | "Moderate" | "High" } {
@@ -151,49 +229,83 @@ function freshnessModifier(wellness: WellnessForReadiness | null | undefined): n
   return Math.max(0.75, Math.min(1.05, mod))
 }
 
+function fmtFrequency(runsPerWeek: number): string {
+  const rounded = Math.round(runsPerWeek * 10) / 10
+  return `${rounded}×/wk`
+}
+
+interface MetricRow {
+  key: keyof GoalWeights
+  label: string
+  currentValue: number | null
+  s: MetricScale
+  fmt: (v: number) => string
+}
+
 export function computeReadiness(
   kpis: KpiSnapshot,
   wellness?: WellnessForReadiness | null,
-  goalDescription?: string | null
+  goal?: TrainingGoalLike | null,
+  program?: MilestoneProgramContext | null,
 ): ReadinessResult {
-  const ae  = kpis.easyPaceAt140Mps   ? lerp(kpis.easyPaceAt140Mps,   E_FLOOR, E_ADV)   : 0
-  const th  = kpis.thresholdSpeedMps  ? lerp(kpis.thresholdSpeedMps,  T_FLOOR, T_ADV)   : 0
-  const lr  = kpis.longRunDistanceM   ? lerp(kpis.longRunDistanceM,   LR_FLOOR, LR_ADV) : 0
-  const con = kpis.weeklyMileage      ? clamp((kpis.weeklyMileage / CON_TARGET) * 100)    : 0
+  const weights = weightsFor(goal?.goalType)
+  const scales = deriveScales(goal, program)
+
   const cadSpm = kpis.cadenceEasy != null
     ? kpis.cadenceEasy * 2
     : kpis.cadenceTempo != null
     ? kpis.cadenceTempo * 2
     : null
-  const eco = cadSpm ? lerp(cadSpm, CAD_FLOOR, CAD_ADV) : 0
 
-  const rawTotal = ae * 0.35 + th * 0.25 + lr * 0.20 + con * 0.15 + eco * 0.05
+  const rows: MetricRow[] = [
+    { key: "aerobic",   label: "Aerobic engine", currentValue: kpis.easyPaceAt140Mps,  s: scales.aerobic,   fmt: fmtPace },
+    { key: "threshold", label: "Threshold",      currentValue: kpis.thresholdSpeedMps, s: scales.threshold, fmt: fmtPace },
+    { key: "longRun",   label: "Long run",       currentValue: kpis.longRunDistanceM,  s: scales.longRun,   fmt: fmtDistance },
+    { key: "mileage",   label: "Weekly mileage", currentValue: kpis.weeklyMileage,     s: scales.mileage,   fmt: (v) => `${fmtDistance(v)}/wk` },
+    { key: "frequency", label: "Weekly frequency", currentValue: kpis.weeklyRunFrequency, s: scales.frequency, fmt: fmtFrequency },
+    { key: "economy",   label: "Economy",        currentValue: cadSpm,                 s: scales.economy,   fmt: (v) => `${Math.round(v)} spm` },
+  ]
+
+  const scores: Record<string, number> = {}
+  for (const row of rows) scores[row.key] = scoreOn(row.currentValue, row.s)
+
+  const rawTotal = rows.reduce((sum, row) => sum + scores[row.key] * (weights[row.key] / 100), 0)
   const freshMod = freshnessModifier(wellness)
   const total = Math.min(100, Math.round(rawTotal * freshMod))
 
   const { score: confidence, label: confidenceLabel } = computeConfidence(kpis)
 
-  // ── Milestone gates ──────────────────────────────────────────────────────────
-  const passM1 = (kpis.easyPaceAt140Mps ?? 0) >= E_M1 &&
-                 (kpis.thresholdSpeedMps ?? 0) >= T_M1 &&
-                 (kpis.longRunDistanceM  ?? 0) >= LR_M1
-  const passM2 = passM1 &&
-                 (kpis.easyPaceAt140Mps ?? 0) >= E_M2 &&
-                 (kpis.thresholdSpeedMps ?? 0) >= T_M2 &&
-                 (kpis.longRunDistanceM  ?? 0) >= LR_M2
-  const passM3 = passM2 &&
-                 (kpis.easyPaceAt140Mps ?? 0) >= E_M3 &&
-                 (kpis.thresholdSpeedMps ?? 0) >= T_M3 &&
-                 (kpis.longRunDistanceM  ?? 0) >= LR_M3
-  const passAdv = passM3 &&
-                  (kpis.easyPaceAt140Mps ?? 0) >= E_ADV &&
-                  (kpis.thresholdSpeedMps ?? 0) >= T_ADV &&
-                  (kpis.longRunDistanceM  ?? 0) >= LR_ADV
+  // A metric only gates/appears in the milestone ladder when it actually
+  // counts toward this goal type's score — a 0-weight metric isn't part of
+  // what this goal is asking of the athlete.
+  const relevantRows = rows.filter((row) => weights[row.key] > 0)
+
+  function passesFraction(fraction: number): boolean {
+    if (relevantRows.length === 0) return false
+    return relevantRows.every(
+      (row) => (row.currentValue ?? row.s.floor) >= valueAtFraction(row.s, fraction)
+    )
+  }
+
+  const passM1 = passesFraction(0.25)
+  const passM2 = passM1 && passesFraction(0.5)
+  const passM3 = passM2 && passesFraction(0.75)
+  const passGoal = passM3 && passesFraction(1.0)
 
   const milestone: ReadinessResult["milestone"] =
-    passAdv ? "advanced" : passM3 ? "m3" : passM2 ? "m2" : passM1 ? "m1" : "pre-m1"
+    passGoal ? "goal" : passM3 ? "m3" : passM2 ? "m2" : passM1 ? "m1" : "pre-m1"
 
-  // ── Build stage list ─────────────────────────────────────────────────────────
+  function targetsAtFraction(fraction: number): MilestoneTarget[] {
+    return relevantRows.map((row) => {
+      const targetValue = valueAtFraction(row.s, fraction)
+      return {
+        metric: row.label,
+        current: row.currentValue != null ? row.fmt(row.currentValue) : "—",
+        target: row.fmt(targetValue),
+        achieved: (row.currentValue ?? row.s.floor) >= targetValue,
+      }
+    })
+  }
 
   const currentStage: MilestoneStage = {
     id: "current",
@@ -201,153 +313,94 @@ export function computeReadiness(
     description: "Where you are today",
     completed: false,
     active: false,
-    targets: [
-      {
-        metric: "Easy pace @140 bpm",
-        current: kpis.easyPaceAt140Mps ? fmtPace(kpis.easyPaceAt140Mps) : "—",
-        target: "",
-        achieved: true,
-      },
-      {
-        metric: "Threshold pace",
-        current: kpis.thresholdSpeedMps ? fmtPace(kpis.thresholdSpeedMps) : "—",
-        target: "",
-        achieved: true,
-      },
-      {
-        metric: "Long run",
-        current: kpis.longRunDistanceM ? fmtDistance(kpis.longRunDistanceM) : "—",
-        target: "",
-        achieved: true,
-      },
-      {
-        metric: "Weekly mileage",
-        current: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) + "/wk" : "—",
-        target: "",
-        achieved: true,
-      },
-    ],
+    targets: relevantRows.map((row) => ({
+      metric: row.label,
+      current: row.currentValue != null ? row.fmt(row.currentValue) : "—",
+      target: "",
+      achieved: true,
+    })),
   }
 
-  const m1Stage: MilestoneStage = {
-    id: "m1",
-    label: "Milestone 1",
-    description: "Aerobic base established",
-    completed: passM1,
-    active: !passM1,
-    targets: [
-      speedTarget(kpis.easyPaceAt140Mps, E_M1, "<10:45/mi", "Easy pace @140 bpm"),
-      speedTarget(kpis.thresholdSpeedMps, T_M1, "<8:30/mi",  "Threshold pace"),
-      distTarget(kpis.longRunDistanceM, LR_M1, "8–9 mi with minimal drift"),
-      {
-        metric: "Weekly mileage",
-        current: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) + "/wk" : "—",
-        target: "Consistent 5-run weeks",
-        achieved: (kpis.weeklyMileage ?? 0) >= 20 * 1609.344,
-      },
-    ],
-  }
+  // No goal → nothing to build a forward-looking ladder toward. Returning
+  // just the "Current" stage lets the dashboard skip the milestone card
+  // entirely rather than showing a ladder that leads nowhere.
+  const milestoneStages: MilestoneStage[] = [currentStage]
 
-  const m2Stage: MilestoneStage = {
-    id: "m2",
-    label: "Milestone 2",
-    description: "Quality work taking hold",
-    completed: passM2,
-    active: passM1 && !passM2,
-    targets: [
-      speedTarget(kpis.easyPaceAt140Mps, E_M2, "~10:00/mi",  "Easy pace @140 bpm"),
-      speedTarget(kpis.thresholdSpeedMps, T_M2, "<8:00/mi",   "Threshold pace"),
-      distTarget(kpis.longRunDistanceM, LR_M2, "10–11 mi with good durability"),
+  if (goal && relevantRows.length > 0) {
+    milestoneStages.push(
       {
-        metric: "Weekly mileage",
-        current: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) + "/wk" : "—",
-        target: "Stable 20–25 mi weeks",
-        achieved: (kpis.weeklyMileage ?? 0) >= 20 * 1609.344,
+        id: "m1",
+        label: "Milestone 1",
+        description: "A quarter of the way there",
+        completed: passM1,
+        active: !passM1,
+        targets: targetsAtFraction(0.25),
       },
-    ],
-  }
-
-  const m3Stage: MilestoneStage = {
-    id: "m3",
-    label: "Milestone 3",
-    description: "Race-specific fitness emerging",
-    completed: passM3,
-    active: passM2 && !passM3,
-    targets: [
-      speedTarget(kpis.easyPaceAt140Mps, E_M3, "<9:30/mi",      "Easy pace @140 bpm"),
-      speedTarget(kpis.thresholdSpeedMps, T_M3, "7:30–7:40/mi", "Threshold pace"),
-      distTarget(kpis.longRunDistanceM, LR_M3, "12–13 mi controlled"),
       {
-        metric: "Weekly mileage",
-        current: kpis.weeklyMileage ? fmtDistance(kpis.weeklyMileage) + "/wk" : "—",
-        target: "25–30 mi weeks",
-        achieved: (kpis.weeklyMileage ?? 0) >= 25 * 1609.344,
+        id: "m2",
+        label: "Milestone 2",
+        description: "Halfway there",
+        completed: passM2,
+        active: passM1 && !passM2,
+        targets: targetsAtFraction(0.5),
       },
-    ],
-  }
-
-  const advStage: MilestoneStage = {
-    id: "advanced",
-    label: "Race-ready",
-    description: goalDescription ? `On pace for: ${goalDescription}` : "Advanced fitness reached",
-    completed: passAdv,
-    active: passM3 && !passAdv,
-    targets: [
-      speedTarget(kpis.easyPaceAt140Mps, E_ADV, "8:45–9:30/mi",  "Easy pace @140 bpm"),
-      speedTarget(kpis.thresholdSpeedMps, T_ADV, "6:55–7:10/mi", "Threshold pace"),
-      distTarget(kpis.longRunDistanceM, LR_ADV, "14 mi controlled"),
       {
-        metric: "Race-specific work",
-        current: "—",
-        target: "7:20–7:30/mi pace work",
-        achieved: false,
+        id: "m3",
+        label: "Milestone 3",
+        description: "Closing in",
+        completed: passM3,
+        active: passM2 && !passM3,
+        targets: targetsAtFraction(0.75),
       },
-    ],
-  }
-
-  const goalStage: MilestoneStage = {
-    id: "goal",
-    label: "Goal",
-    description: goalDescription ?? "No goal set yet",
-    completed: false,
-    active: false,
-    targets: [],
+      {
+        id: "goal",
+        label: "Goal",
+        description: describeGoal(goal, "imperial"),
+        completed: passGoal,
+        active: passM3 && !passGoal,
+        targets: targetsAtFraction(1.0),
+      },
+    )
   }
 
   return {
     total,
     milestone,
     milestoneLabel: {
-      "pre-m1":   "Building base",
-      "m1":       "Milestone 1 reached",
-      "m2":       "Milestone 2 reached",
-      "m3":       "Milestone 3 reached",
-      "advanced": "Advanced",
+      "pre-m1": "Building base",
+      "m1":     "Milestone 1 reached",
+      "m2":     "Milestone 2 reached",
+      "m3":     "Milestone 3 reached",
+      "goal":   "Goal pace reached",
     }[milestone],
     confidence,
     confidenceLabel,
     components: {
       aerobicEngine: {
-        score: Math.round(ae), weight: 35, label: "Aerobic engine",
+        score: Math.round(scores.aerobic), weight: weights.aerobic, label: "Aerobic engine",
         detail: kpis.easyPaceAt140Mps ? `${fmtPace(kpis.easyPaceAt140Mps)} @140 bpm` : "No easy run data",
       },
       threshold: {
-        score: Math.round(th), weight: 25, label: "Threshold",
+        score: Math.round(scores.threshold), weight: weights.threshold, label: "Threshold",
         detail: kpis.thresholdSpeedMps ? fmtPace(kpis.thresholdSpeedMps) : "No threshold data",
       },
       longRun: {
-        score: Math.round(lr), weight: 20, label: "Long run",
+        score: Math.round(scores.longRun), weight: weights.longRun, label: "Long run",
         detail: kpis.longRunDistanceM ? fmtDistance(kpis.longRunDistanceM) : "No long run data",
       },
       consistency: {
-        score: Math.round(con), weight: 15, label: "Consistency",
+        score: Math.round(scores.mileage), weight: weights.mileage, label: "Consistency",
         detail: kpis.weeklyMileage ? `${fmtDistance(kpis.weeklyMileage)}/wk` : "No recent runs",
       },
+      frequency: {
+        score: Math.round(scores.frequency), weight: weights.frequency, label: "Weekly frequency",
+        detail: kpis.weeklyRunFrequency != null ? fmtFrequency(kpis.weeklyRunFrequency) : "No recent runs",
+      },
       economy: {
-        score: Math.round(eco), weight: 5, label: "Economy",
+        score: Math.round(scores.economy), weight: weights.economy, label: "Economy",
         detail: cadSpm ? `${cadSpm} spm` : "No cadence data",
       },
     },
-    milestoneStages: [currentStage, m1Stage, m2Stage, m3Stage, advStage, goalStage],
+    milestoneStages,
   }
 }

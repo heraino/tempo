@@ -18,7 +18,7 @@ import {
 import { and, eq, gte, lte, isNull, desc } from "drizzle-orm"
 import { computeAdherence, ratePct, type AdherenceSessionRecord } from "@/lib/analytics/adherence"
 import { computePerformance } from "@/lib/analytics/performance"
-import { computeReadiness } from "@/lib/analytics/readiness"
+import { computeReadiness, programContextFromPlanJson } from "@/lib/analytics/readiness"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { getActivePlanVersion } from "@/lib/services/plan.service"
 import { getActiveGoal } from "@/lib/services/goal.service"
@@ -199,7 +199,9 @@ export async function gatherPlanReviewEvidence(
   const sevenDayCutoff = shiftDate(todayStr, -7)
   const last7 = wellnessRows.filter((r) => r.calendarDate >= sevenDayCutoff)
 
-  const readiness = kpis ? computeReadiness(kpis) : null
+  const readiness = kpis
+    ? computeReadiness(kpis, null, goal, programContextFromPlanJson(planVersion.planJson))
+    : null
 
   const evidence: PlanReviewEvidence = {
     windowDays: REVIEW_WINDOW_DAYS,
