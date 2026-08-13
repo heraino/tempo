@@ -29,6 +29,8 @@ interface InitialGoal {
 interface Props {
   initial: InitialGoal | null
   units: "imperial" | "metric"
+  /** Called after a successful save, in addition to the default refresh/toast. */
+  onSaved?: () => void
 }
 
 const inputCls =
@@ -46,7 +48,7 @@ function distanceToPresetKey(
   return match ? String(match.meters) : "custom"
 }
 
-export function GoalForm({ initial, units }: Props) {
+export function GoalForm({ initial, units, onSaved }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -88,6 +90,7 @@ export function GoalForm({ initial, units }: Props) {
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
         router.refresh()
+        onSaved?.()
       } else {
         setError(result.error ?? "Could not save goal")
       }
