@@ -8,7 +8,6 @@
 export const GOAL_TYPES = [
   "race",
   "distance_milestone",
-  "pace",
   "distance_at_pace",
   "habit",
 ] as const
@@ -18,16 +17,14 @@ export type GoalType = (typeof GOAL_TYPES)[number]
 export const GOAL_TYPE_LABELS: Record<GoalType, string> = {
   race: "Race",
   distance_milestone: "Distance milestone",
-  pace: "Pace goal",
-  distance_at_pace: "Distance at a pace",
+  distance_at_pace: "Pace or time goal",
   habit: "Consistency",
 }
 
 export const GOAL_TYPE_DESCRIPTIONS: Record<GoalType, string> = {
   race: "Train for a specific race on a specific date",
   distance_milestone: "Run a distance you haven't run before",
-  pace: "Get faster at a distance you already run",
-  distance_at_pace: "Run a set distance in a target time",
+  distance_at_pace: "Hit a target pace, finish time, or both — no race required",
   habit: "Build a consistent running routine",
 }
 
@@ -241,6 +238,9 @@ export function describeGoal(
     }
     case "distance_milestone":
       return `Run ${distance ?? "a new distance"} continuous${by}`
+    // "pace" was merged into "distance_at_pace" (the same fields, minus a finish
+    // time) and is no longer selectable — kept so any already-saved goal of
+    // this type still renders correctly.
     case "pace": {
       if (!pace) return `Get faster${by}`
       return distance ? `${distance} at ${pace}${by}` : `Run at ${pace}${by}`
@@ -285,6 +285,7 @@ export function suggestPlanTitle(
       return distance ? `${distance} Race Plan` : "Race Plan"
     case "distance_milestone":
       return distance ? `Road to ${distance}` : "Distance Build"
+    // Legacy — see the matching comment in describeGoal().
     case "pace": {
       const pace = fmtGoalPace(resolveTargetPaceMinPerKm(goal), units)
       return pace ? `${pace} Project` : "Speed Project"

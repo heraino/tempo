@@ -78,7 +78,7 @@ export function GoalForm({ initial, units, onSaved }: Props) {
   const showDistance = goalType !== "habit"
   const showDate = goalType !== "habit"
   const showDuration = goalType === "race" || goalType === "distance_at_pace"
-  const showPace = goalType === "pace" || goalType === "distance_at_pace"
+  const showPace = goalType === "distance_at_pace"
   const showRuns = goalType === "habit"
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -134,9 +134,7 @@ export function GoalForm({ initial, units, onSaved }: Props) {
       {/* Distance */}
       {showDistance && (
         <div>
-          <label className={labelCls}>
-            {goalType === "pace" ? "At which distance?" : "Target distance"}
-          </label>
+          <label className={labelCls}>Target distance</label>
           <select
             name="targetDistanceM"
             value={distanceKey}
@@ -187,7 +185,9 @@ export function GoalForm({ initial, units, onSaved }: Props) {
             ]}
           />
           <p className="text-xs text-gray-400 mt-1">
-            Leave blank if you just want to finish.
+            {goalType === "distance_at_pace"
+              ? "Enter this, a pace below, or both — we'll fill in the other."
+              : "Leave blank if you just want to finish."}
           </p>
         </div>
       )}

@@ -218,9 +218,17 @@ describe("describeGoal", () => {
     expect(describeGoal({ goalType: "habit", targetRunsPerWeek: 4 })).toBe("Run 4× per week")
   })
 
-  it("describes a pace goal", () => {
+  it("describes a legacy 'pace' goal (type merged into distance_at_pace, kept for old data)", () => {
     const text = describeGoal(
       { goalType: "pace", targetDistanceM: 5000, targetPaceMinPerKm: 5 },
+      "imperial",
+    )
+    expect(text).toBe("5K at 8:03/mi")
+  })
+
+  it("describes a distance_at_pace goal with only a pace set, no finish time — the case 'pace' used to cover", () => {
+    const text = describeGoal(
+      { goalType: "distance_at_pace", targetDistanceM: 5000, targetPaceMinPerKm: 5 },
       "imperial",
     )
     expect(text).toBe("5K at 8:03/mi")
