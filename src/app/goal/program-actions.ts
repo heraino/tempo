@@ -111,15 +111,6 @@ export async function startProgram(
     return { ok: false, error: "That program is no longer valid — generate a new one." }
   }
 
-  const existingVersion = await getActivePlanVersion(userId)
-  if (existingVersion) {
-    return {
-      ok: false,
-      error:
-        "You already have a training plan. Use “How is my plan working?” to change it instead.",
-    }
-  }
-
   let planJson
   try {
     planJson = validatePlanJson(blueprintToPlanJson(parsed.data))

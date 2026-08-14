@@ -180,9 +180,13 @@ export async function generateProgram(
 /**
  * Write an accepted program as the athlete's plan and generate its schedule.
  *
- * Used when an athlete has no plan yet (switching from "just run" or completing
- * onboarding). An athlete who already has a plan changes it through the review
- * flow, which versions the change instead of replacing it.
+ * Used both when an athlete has no plan yet (switching from "just run" or
+ * completing onboarding) and when replacing an existing one with a freshly
+ * generated program. Either way this versions rather than deletes: a prior
+ * active version is linked as priorVersionId and its effective window is
+ * closed out at startDate, but its rows — and every completed session and
+ * workout log tied to it — are left exactly as they were. Only forward
+ * schedule is generated under the new version; past history is never rewritten.
  */
 export async function activateProgram(
   userId: string,
@@ -198,6 +202,14 @@ export async function activateProgram(
     blueprint.planName ||
     (goal ? suggestPlanTitle(goal, "imperial") : "Training Program")
 
+  const existing = await db
+    .select()
+    .from(trainingPlanVersions)
+    .where(eq(trainingPlanVersions.userId, userId))
+    .orderBy(desc(trainingPlanVersions.versionNumber))
+    .limit(1)
+  const priorVersion = existing[0] ?? null
+
   await db.delete(trainingPlans).where(eq(trainingPlans.userId, userId))
   await db.insert(trainingPlans).values({
     userId,
@@ -210,28 +222,32 @@ export async function activateProgram(
     timezone,
   })
 
-  const existing = await db
-    .select({ versionNumber: trainingPlanVersions.versionNumber })
-    .from(trainingPlanVersions)
-    .where(eq(trainingPlanVersions.userId, userId))
-    .orderBy(desc(trainingPlanVersions.versionNumber))
-    .limit(1)
+  const changeReason = priorVersion
+    ? `Replaced with a newly generated program for: ${goal ? describeGoal(goal, "imperial") : "general training"}`
+    : `Program generated for: ${goal ? describeGoal(goal, "imperial") : "general training"}`
 
   const [version] = await db
     .insert(trainingPlanVersions)
     .values({
       userId,
-      versionNumber: (existing[0]?.versionNumber ?? 0) + 1,
+      versionNumber: (priorVersion?.versionNumber ?? 0) + 1,
       effectiveFrom: startDate,
       effectiveUntil: null,
       planJson: validated,
       cycleStartDate: startDate,
       cycleStartWeekId,
-      changeReason: `Program generated for: ${goal ? describeGoal(goal, "imperial") : "general training"}`,
+      changeReason,
       changeAuthor: "coach_accepted_by_athlete",
-      priorVersionId: null,
+      priorVersionId: priorVersion?.id ?? null,
     })
     .returning()
+
+  if (priorVersion) {
+    await db
+      .update(trainingPlanVersions)
+      .set({ effectiveUntil: startDate })
+      .where(eq(trainingPlanVersions.id, priorVersion.id))
+  }
 
   await generateSchedule(
     userId,

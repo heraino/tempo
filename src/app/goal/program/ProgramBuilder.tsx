@@ -31,6 +31,8 @@ interface Props {
     longestRecentRunMi: number | null
   }
   hasGoal: boolean
+  /** When true, starting this program replaces an already-active one. */
+  hasExistingPlan?: boolean
 }
 
 const inputCls =
@@ -38,13 +40,14 @@ const inputCls =
 const labelCls =
   "block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5"
 
-export function ProgramBuilder({ units, defaults, hasGoal }: Props) {
+export function ProgramBuilder({ units, defaults, hasGoal, hasExistingPlan }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [program, setProgram] = useState<GeneratedProgram | null>(null)
   const [feedback, setFeedback] = useState("")
   const [showFeedback, setShowFeedback] = useState(false)
+  const [confirmingReplace, setConfirmingReplace] = useState(false)
 
   const [runnerLevel, setRunnerLevel] = useState(defaults.runnerLevel ?? "beginner")
   const [daysPerWeek, setDaysPerWeek] = useState(String(defaults.daysPerWeek ?? 3))
@@ -72,6 +75,7 @@ export function ProgramBuilder({ units, defaults, hasGoal }: Props) {
 
   function generate(withFeedback?: string) {
     setError(null)
+    setConfirmingReplace(false)
     startTransition(async () => {
       const inputs = currentInputs()
       const result = await buildProgram(inputs, withFeedback ?? null)
@@ -84,6 +88,14 @@ export function ProgramBuilder({ units, defaults, hasGoal }: Props) {
         setError(result.error ?? "Could not build a program")
       }
     })
+  }
+
+  function handleStartClick() {
+    if (hasExistingPlan && !confirmingReplace) {
+      setConfirmingReplace(true)
+      return
+    }
+    accept()
   }
 
   function accept() {
@@ -391,14 +403,44 @@ export function ProgramBuilder({ units, defaults, hasGoal }: Props) {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={accept}
-              disabled={isPending}
-              className="w-full rounded-xl bg-orange-500 py-3.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50 transition-colors"
-            >
-              {isPending ? "Starting…" : "Start this program"}
-            </button>
+            {confirmingReplace ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+                <p className="text-sm font-medium text-amber-800">
+                  This replaces your current training plan.
+                </p>
+                <p className="text-xs text-amber-700">
+                  Your workout history and everything you&apos;ve already completed stay
+                  exactly as they are — only the upcoming schedule changes.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={accept}
+                    disabled={isPending}
+                    className="flex-1 rounded-lg bg-amber-600 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                  >
+                    {isPending ? "Replacing…" : "Yes, replace my plan"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingReplace(false)}
+                    disabled={isPending}
+                    className="rounded-lg border border-amber-300 px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleStartClick}
+                disabled={isPending}
+                className="w-full rounded-xl bg-orange-500 py-3.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50 transition-colors"
+              >
+                {isPending ? "Starting…" : "Start this program"}
+              </button>
+            )}
             <p className="text-xs text-gray-400 text-center">
               Your schedule starts next Monday. You can change any session later.
             </p>

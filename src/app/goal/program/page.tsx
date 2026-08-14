@@ -49,73 +49,71 @@ export default async function ProgramPage() {
           </p>
         </div>
 
-        {planVersion ? (
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center">
-            <p className="text-sm text-gray-600 mb-1 font-medium">
+        {planVersion && (
+          <section className="bg-amber-50 rounded-2xl border border-amber-200 px-5 py-4">
+            <p className="text-sm font-medium text-amber-800">
               You already have a training plan.
             </p>
-            <p className="text-sm text-gray-400 mb-4">
-              To change it, have your coach review how it&apos;s working — that way the
-              change is versioned against your history instead of starting over.
+            <p className="text-sm text-amber-700 mt-1">
+              Building a new program below will replace it — we&apos;ll confirm before
+              anything changes. Your workout history stays intact either way. To
+              adjust the current plan instead of replacing it, use{" "}
+              <Link href="/plan/review" className="font-semibold underline">
+                How is my plan working?
+              </Link>
+              .
             </p>
-            <Link
-              href="/plan/review"
-              className="inline-block rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
-            >
-              Review my plan
-            </Link>
           </section>
-        ) : (
-          <>
-            {/* Goal context */}
-            <section className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
-                Training toward
-              </p>
-              {goal ? (
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <p className="text-sm font-semibold text-gray-900">
-                    {describeGoal(goal, units)}
-                  </p>
-                  <Link
-                    href="/goal"
-                    className="text-sm font-semibold text-orange-500 hover:underline shrink-0"
-                  >
-                    Change
-                  </Link>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <p className="text-sm text-gray-500">
-                    No goal yet — setting one makes the program much more specific.
-                  </p>
-                  <Link
-                    href="/goal"
-                    className="text-sm font-semibold text-orange-500 hover:underline shrink-0"
-                  >
-                    Set a goal
-                  </Link>
-                </div>
-              )}
-            </section>
-
-            <ProgramBuilder
-              units={units}
-              hasGoal={goal != null}
-              defaults={{
-                runnerLevel: prefs.runnerLevel,
-                daysPerWeek: prefs.daysPerWeek,
-                longRunDay: prefs.longRunDay,
-                currentWeeklyMi: kpis?.weeklyMileage
-                  ? Math.round((kpis.weeklyMileage / METERS_PER_MILE) * 10) / 10
-                  : null,
-                longestRecentRunMi: kpis?.longRunDistanceM
-                  ? Math.round((kpis.longRunDistanceM / METERS_PER_MILE) * 10) / 10
-                  : null,
-              }}
-            />
-          </>
         )}
+
+        {/* Goal context */}
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+            Training toward
+          </p>
+          {goal ? (
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm font-semibold text-gray-900">
+                {describeGoal(goal, units)}
+              </p>
+              <Link
+                href="/goal"
+                className="text-sm font-semibold text-orange-500 hover:underline shrink-0"
+              >
+                Change
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm text-gray-500">
+                No goal yet — setting one makes the program much more specific.
+              </p>
+              <Link
+                href="/goal"
+                className="text-sm font-semibold text-orange-500 hover:underline shrink-0"
+              >
+                Set a goal
+              </Link>
+            </div>
+          )}
+        </section>
+
+        <ProgramBuilder
+          units={units}
+          hasGoal={goal != null}
+          hasExistingPlan={planVersion != null}
+          defaults={{
+            runnerLevel: prefs.runnerLevel,
+            daysPerWeek: prefs.daysPerWeek,
+            longRunDay: prefs.longRunDay,
+            currentWeeklyMi: kpis?.weeklyMileage
+              ? Math.round((kpis.weeklyMileage / METERS_PER_MILE) * 10) / 10
+              : null,
+            longestRecentRunMi: kpis?.longRunDistanceM
+              ? Math.round((kpis.longRunDistanceM / METERS_PER_MILE) * 10) / 10
+              : null,
+          }}
+        />
 
       </div>
     </main>

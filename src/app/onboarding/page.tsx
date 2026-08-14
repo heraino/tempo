@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { getActiveGoal } from "@/lib/services/goal.service"
+import { getActivePlanVersion } from "@/lib/services/plan.service"
 import { METERS_PER_MILE } from "@/lib/goals/goal"
 import { OnboardingWizard } from "./OnboardingWizard"
 
@@ -16,10 +17,11 @@ export default async function OnboardingPage() {
   if (!session?.user?.id) redirect("/sign-in")
   const userId = session.user.id
 
-  const [prefs, kpis, existingGoal] = await Promise.all([
+  const [prefs, kpis, existingGoal, activePlanVersion] = await Promise.all([
     getUserPreferences(userId),
     getKpiSnapshot(userId).catch(() => null),
     getActiveGoal(userId).catch(() => null),
+    getActivePlanVersion(userId).catch(() => null),
   ])
 
   return (
@@ -50,6 +52,7 @@ export default async function OnboardingPage() {
       existingRunnerLevel={prefs.runnerLevel}
       existingDaysPerWeek={prefs.daysPerWeek}
       existingLongRunDay={prefs.longRunDay}
+      hasExistingPlan={activePlanVersion != null}
     />
   )
 }

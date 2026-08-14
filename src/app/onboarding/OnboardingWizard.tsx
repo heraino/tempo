@@ -32,6 +32,8 @@ interface Props {
   existingRunnerLevel?: RunnerLevel | null
   existingDaysPerWeek?: number | null
   existingLongRunDay?: string | null
+  /** When true, building a program here replaces an already-active one. */
+  hasExistingPlan?: boolean
 }
 
 const LEVEL_OPTIONS: Array<{ value: RunnerLevel; title: string; detail: string }> = [
@@ -110,6 +112,7 @@ export function OnboardingWizard({
   existingRunnerLevel,
   existingDaysPerWeek,
   existingLongRunDay,
+  hasExistingPlan,
 }: Props) {
   const router = useRouter()
   const [step, setStep] = useState<Step>("path")
@@ -297,6 +300,7 @@ export function OnboardingWizard({
             <ProgramBuilder
               units={units}
               hasGoal
+              hasExistingPlan={hasExistingPlan}
               defaults={{
                 runnerLevel: level,
                 daysPerWeek: existingDaysPerWeek ?? null,
