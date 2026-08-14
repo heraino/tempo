@@ -140,8 +140,12 @@ export async function generateProgram(
         ],
         { temperature: attempt === 0 ? 0.3 : 0.5, maxTokens: 2500 },
       )
-    } catch {
-      return { ok: false, error: "The coach is unavailable right now. Try again shortly." }
+    } catch (err) {
+      // Surface the underlying reason (timeout vs. auth vs. upstream error) instead
+      // of a generic message — with no server log access in some environments, this
+      // is the only signal available for diagnosing a real outage vs. misconfiguration.
+      const detail = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: `The coach is unavailable right now: ${detail}` }
     }
 
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
