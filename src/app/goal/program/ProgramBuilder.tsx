@@ -78,14 +78,18 @@ export function ProgramBuilder({ units, defaults, hasGoal, hasExistingPlan }: Pr
     setConfirmingReplace(false)
     startTransition(async () => {
       const inputs = currentInputs()
-      const result = await buildProgram(inputs, withFeedback ?? null)
-      if (result.ok && result.program) {
-        setProgram(result.program)
-        setShowFeedback(false)
-        setFeedback("")
-        void saveProgramInputs(inputs)
-      } else {
-        setError(result.error ?? "Could not build a program")
+      try {
+        const result = await buildProgram(inputs, withFeedback ?? null)
+        if (result.ok && result.program) {
+          setProgram(result.program)
+          setShowFeedback(false)
+          setFeedback("")
+          void saveProgramInputs(inputs)
+        } else {
+          setError(result.error ?? "Could not build a program")
+        }
+      } catch {
+        setError("The coach is taking too long to respond. Try again in a moment.")
       }
     })
   }
@@ -102,9 +106,13 @@ export function ProgramBuilder({ units, defaults, hasGoal, hasExistingPlan }: Pr
     if (!program) return
     setError(null)
     startTransition(async () => {
-      const result = await startProgram(program.blueprint)
-      if (result.ok) router.push("/dashboard")
-      else setError(result.error ?? "Could not start that program")
+      try {
+        const result = await startProgram(program.blueprint)
+        if (result.ok) router.push("/dashboard")
+        else setError(result.error ?? "Could not start that program")
+      } catch {
+        setError("Could not start that program. Try again in a moment.")
+      }
     })
   }
 
