@@ -10,12 +10,28 @@ type RunnerLevel = "beginner" | "intermediate"
 type TrainingMode = "just_run" | "goal_program"
 type Step = "path" | "justRun" | "goal" | "program"
 
+interface ExistingGoal {
+  goalType: string
+  title: string | null
+  targetDate: string | null
+  targetDistanceM: number | null
+  targetDurationSecs: number | null
+  targetPaceMinPerKm: number | null
+  targetRunsPerWeek: number | null
+  notes: string | null
+}
+
 interface Props {
   units: "imperial" | "metric"
   kpiDefaults: {
     currentWeeklyMi: number | null
     longestRecentRunMi: number | null
   }
+  /** Pre-fills the goal step instead of asking again when one is already set. */
+  existingGoal?: ExistingGoal | null
+  existingRunnerLevel?: RunnerLevel | null
+  existingDaysPerWeek?: number | null
+  existingLongRunDay?: string | null
 }
 
 const LEVEL_OPTIONS: Array<{ value: RunnerLevel; title: string; detail: string }> = [
@@ -87,12 +103,21 @@ function StepHeader({ title, subtitle }: { title: string; subtitle: string }) {
   )
 }
 
-export function OnboardingWizard({ units, kpiDefaults }: Props) {
+export function OnboardingWizard({
+  units,
+  kpiDefaults,
+  existingGoal,
+  existingRunnerLevel,
+  existingDaysPerWeek,
+  existingLongRunDay,
+}: Props) {
   const router = useRouter()
   const [step, setStep] = useState<Step>("path")
-  const [level, setLevel] = useState<RunnerLevel | null>(null)
+  const [level, setLevel] = useState<RunnerLevel | null>(existingRunnerLevel ?? null)
   const [mode, setMode] = useState<TrainingMode | null>(null)
-  const [daysPerWeek, setDaysPerWeek] = useState("3")
+  const [daysPerWeek, setDaysPerWeek] = useState(
+    existingDaysPerWeek != null ? String(existingDaysPerWeek) : "3"
+  )
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -247,7 +272,11 @@ export function OnboardingWizard({ units, kpiDefaults }: Props) {
               ← Back
             </button>
             <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <GoalForm initial={null} units={units} onSaved={() => setStep("program")} />
+              <GoalForm
+                initial={existingGoal ?? null}
+                units={units}
+                onSaved={() => setStep("program")}
+              />
             </section>
           </div>
         )}
@@ -270,8 +299,8 @@ export function OnboardingWizard({ units, kpiDefaults }: Props) {
               hasGoal
               defaults={{
                 runnerLevel: level,
-                daysPerWeek: null,
-                longRunDay: null,
+                daysPerWeek: existingDaysPerWeek ?? null,
+                longRunDay: existingLongRunDay ?? null,
                 currentWeeklyMi: kpiDefaults.currentWeeklyMi,
                 longestRecentRunMi: kpiDefaults.longestRecentRunMi,
               }}
