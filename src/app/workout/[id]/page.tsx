@@ -16,6 +16,11 @@ import { CoachAnalysisSection } from "@/components/CoachAnalysisSection"
 import { WorkoutCharts } from "@/components/WorkoutCharts"
 import type { CoachOutput } from "@/app/workout/coach-actions"
 
+// Coaching analysis makes its own Nebius call and then generates the
+// notebook entry, a second sequential call — extend the platform timeout so
+// a legitimate, just-slow pair of calls isn't killed mid-flight.
+export const maxDuration = 120
+
 // ── small helpers ─────────────────────────────────────────────────────────────
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {

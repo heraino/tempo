@@ -8,6 +8,11 @@ import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import { describeGoal, METERS_PER_MILE } from "@/lib/goals/goal"
 import { ProgramBuilder } from "./ProgramBuilder"
 
+// Program generation can make up to two sequential Nebius calls (a retry on
+// a malformed first response) — extend the platform's function timeout so a
+// legitimate, just-slow generation isn't killed mid-flight.
+export const maxDuration = 120
+
 export default async function ProgramPage() {
   const session = await auth()
   if (!session?.user?.id) redirect("/sign-in")

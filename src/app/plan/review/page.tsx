@@ -13,6 +13,10 @@ import {
   type ReviewSummary,
 } from "./PlanReviewClient"
 
+// A single Nebius call, but extend past the platform default so a legitimate
+// slow response isn't killed mid-flight before our own client-side timeout.
+export const maxDuration = 60
+
 export default async function PlanReviewPage() {
   const session = await auth()
   if (!session?.user?.id) redirect("/sign-in")

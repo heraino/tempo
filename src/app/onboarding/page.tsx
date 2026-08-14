@@ -6,6 +6,11 @@ import { getActiveGoal } from "@/lib/services/goal.service"
 import { METERS_PER_MILE } from "@/lib/goals/goal"
 import { OnboardingWizard } from "./OnboardingWizard"
 
+// The wizard's program step can make up to two sequential Nebius calls —
+// extend the platform's function timeout so a legitimate, just-slow
+// generation isn't killed mid-flight.
+export const maxDuration = 120
+
 export default async function OnboardingPage() {
   const session = await auth()
   if (!session?.user?.id) redirect("/sign-in")
