@@ -4,6 +4,8 @@ import { and, eq, desc, gte, lte } from "drizzle-orm"
 import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
 import { seedPlanVersion } from "@/lib/plan/seed"
+import { getActiveGoal } from "@/lib/services/goal.service"
+import { resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
 import type { DayPlan, SessionPlan } from "@/lib/plan/scheduler"
 
 export async function getActivePlan(userId: string) {
@@ -78,6 +80,11 @@ export interface ScheduledSession {
   sequenceInDay: number
   status: string
   intervalsJson: unknown
+  targetDistanceM: number | null
+  targetDurationSecs: number | null
+  targetHrMin: number | null
+  targetHrMax: number | null
+  targetPaceMinPerKm: number | null
 }
 
 export interface ScheduledDay {
@@ -119,10 +126,12 @@ export async function getDayWithSessions(
 
   // Ensure this date is generated
   const planJson = validatePlanJson(planVersion.planJson)
+  const goal = await getActiveGoal(userId).catch(() => null)
   await generateSchedule(
     userId, planVersion.id, planJson,
     planVersion.cycleStartDate, planVersion.cycleStartWeekId,
-    dateStr, 1
+    dateStr, 1,
+    goal ? resolveTargetPaceMinPerKm(goal) : null,
   )
 
   const dayRows = await db
@@ -169,6 +178,11 @@ export async function getDayWithSessions(
         sequenceInDay: s.sequenceInDay,
         status: s.status,
         intervalsJson: s.intervalsJson,
+        targetDistanceM: s.targetDistanceM,
+        targetDurationSecs: s.targetDurationSecs,
+        targetHrMin: s.targetHrMin,
+        targetHrMax: s.targetHrMax,
+        targetPaceMinPerKm: s.targetPaceMinPerKm,
       })),
   }
 }
@@ -200,10 +214,12 @@ export async function getScheduleRange(
   }
 
   // Ensure all requested days are generated
+  const goal = await getActiveGoal(userId).catch(() => null)
   await generateSchedule(
     userId, planVersion.id, planJson,
     planVersion.cycleStartDate, planVersion.cycleStartWeekId,
-    fromDateStr, days
+    fromDateStr, days,
+    goal ? resolveTargetPaceMinPerKm(goal) : null,
   )
 
   // Compute inclusive end date for query
@@ -257,6 +273,11 @@ export async function getScheduleRange(
           sequenceInDay: s.sequenceInDay,
           status: s.status,
           intervalsJson: s.intervalsJson,
+          targetDistanceM: s.targetDistanceM,
+          targetDurationSecs: s.targetDurationSecs,
+          targetHrMin: s.targetHrMin,
+          targetHrMax: s.targetHrMax,
+          targetPaceMinPerKm: s.targetPaceMinPerKm,
         }))
 
       return {

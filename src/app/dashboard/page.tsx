@@ -15,7 +15,7 @@ import { computeReadiness, programContextFromPlanJson } from "@/lib/analytics/re
 import { computePerformance } from "@/lib/analytics/performance"
 import { getActiveGoal } from "@/lib/services/goal.service"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
-import { describeGoal, weeksBetween, daysBetween } from "@/lib/goals/goal"
+import { describeGoal, weeksBetween, daysBetween, fmtSessionTargets } from "@/lib/goals/goal"
 import type { NotebookEntry } from "@/app/workout/coach-actions"
 
 function KpiCard({
@@ -254,7 +254,12 @@ export default async function DashboardPage() {
     : ""
 
   const todaySessionSummary = todayDay && !todayDay.isRestDay && todayDay.sessions.length > 0
-    ? todayDay.sessions.map((s) => s.label).join(" + ")
+    ? todayDay.sessions
+        .map((s) => {
+          const targets = fmtSessionTargets(s, units)
+          return targets ? `${s.label} (${targets})` : s.label
+        })
+        .join(" + ")
     : null
 
   // Build wellness context for the readiness freshness modifier
@@ -402,7 +407,12 @@ export default async function DashboardPage() {
               const dateObj = new Date(day.date + "T00:00:00.000Z")
               const weekLabel = `Week ${day.cycleWeekId}`
               const firstSession = day.sessions[0]
-              const firstLine = firstSession ? firstSession.label : null
+              const firstSessionTargets = firstSession ? fmtSessionTargets(firstSession, units) : null
+              const firstLine = firstSession
+                ? firstSessionTargets
+                  ? `${firstSession.label} · ${firstSessionTargets}`
+                  : firstSession.label
+                : null
 
               return (
                 <li key={day.id}>

@@ -516,3 +516,75 @@ describe("SEED_PLAN_JSON — progression block model", () => {
     expect(SEED_PLAN_JSON.mileageBands).toBeUndefined()
   })
 })
+
+// ─── resolveDayPlans — distance/pace/duration targets ─────────────────────────
+
+describe("resolveDayPlans — deterministic session targets", () => {
+  const START = "2026-07-06" // Monday — Week A starts here
+
+  it("fills a run session's distance from the progression block even with no goal pace", () => {
+    const days = resolveDayPlans(SEED_PLAN_JSON, START, "A", "2026-07-12", 1) // Sunday, long run
+    const long = days[0].sessions.find((s) => s.sessionKind === "long")!
+    expect(long.targetDistanceM).toBeGreaterThan(0)
+    expect(long.targetPaceMinPerKm).toBeUndefined()
+    expect(long.targetDurationSecs).toBeUndefined()
+  })
+
+  it("also fills pace and duration once a threshold pace is supplied", () => {
+    const days = resolveDayPlans(SEED_PLAN_JSON, START, "A", "2026-07-12", 1, 5.0)
+    const long = days[0].sessions.find((s) => s.sessionKind === "long")!
+    expect(long.targetDistanceM).toBeGreaterThan(0)
+    expect(long.targetPaceMinPerKm).toBeGreaterThan(5.0) // long run is slower than threshold
+    expect(long.targetDurationSecs).toBeGreaterThan(0)
+  })
+
+  it("leaves non-running sessions without distance/pace targets", () => {
+    const days = resolveDayPlans(SEED_PLAN_JSON, START, "A", "2026-07-06", 1, 5.0) // Monday: easy + elastic
+    const elastic = days[0].sessions.find((s) => s.sessionKind === "elastic")!
+    expect(elastic.targetDistanceM).toBeUndefined()
+    expect(elastic.targetPaceMinPerKm).toBeUndefined()
+  })
+
+  it("gives a cutback week's long run a smaller distance target than a build week's", () => {
+    // Week A (build) Sunday vs Week D (cutback) Sunday, one cycle later
+    const buildDays = resolveDayPlans(SEED_PLAN_JSON, START, "A", "2026-07-12", 1)
+    const cutbackDays = resolveDayPlans(SEED_PLAN_JSON, START, "A", "2026-08-02", 1) // Week D Sunday
+    const buildLong = buildDays[0].sessions.find((s) => s.sessionKind === "long")!
+    const cutbackLong = cutbackDays[0].sessions.find((s) => s.sessionKind === "long")!
+    expect(cutbackLong.targetDistanceM!).toBeLessThan(buildLong.targetDistanceM!)
+  })
+
+  it("an explicit target on the plan template always wins over the computed value", () => {
+    const plan = {
+      version: 1 as const,
+      cycleWeeks: [{
+        id: "only",
+        label: "Single week",
+        days: [
+          { weekday: "Monday" as const, sessions: [] },
+          { weekday: "Tuesday" as const, sessions: [] },
+          { weekday: "Wednesday" as const, sessions: [] },
+          { weekday: "Thursday" as const, sessions: [] },
+          { weekday: "Friday" as const, sessions: [] },
+          { weekday: "Saturday" as const, sessions: [] },
+          {
+            weekday: "Sunday" as const,
+            sessions: [{
+              sessionKind: "long" as const,
+              label: "Long run",
+              prescription: "Long run",
+              isRunSession: true,
+              isStrengthSession: false,
+              targetDistanceM: 12345,
+            }],
+          },
+        ],
+      }],
+      progressionBlocks: [
+        { blockNumber: 1, buildMinMi: 20, buildMaxMi: 22, cutbackMinMi: 15, cutbackMaxMi: 17 },
+      ],
+    }
+    const days = resolveDayPlans(plan, "2026-07-06", "only", "2026-07-12", 1, 5.0)
+    expect(days[0].sessions[0].targetDistanceM).toBe(12345)
+  })
+})

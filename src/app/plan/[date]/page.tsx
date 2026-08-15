@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
 import { getDayWithSessions } from "@/lib/services/plan.service"
+import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { addDays } from "@/lib/plan/scheduler"
 import { PlanSessionCard } from "@/components/PlanSessionCard"
 import { AddPlanSession } from "@/components/AddPlanSession"
@@ -18,7 +19,10 @@ export default async function PlanDatePage({
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) notFound()
 
-  const day = await getDayWithSessions(session.user.id, dateParam)
+  const [day, prefs] = await Promise.all([
+    getDayWithSessions(session.user.id, dateParam),
+    getUserPreferences(session.user.id),
+  ])
   if (!day) redirect("/onboarding")
 
   const prevDate = addDays(dateParam, -1)
@@ -99,6 +103,7 @@ export default async function PlanDatePage({
                   <PlanSessionCard
                     key={s.id}
                     dateStr={dateParam}
+                    units={prefs.unitsSystem}
                     session={{
                       id: s.id,
                       sessionKind: s.sessionKind,
@@ -107,6 +112,9 @@ export default async function PlanDatePage({
                       isRunSession: s.isRunSession,
                       isStrengthSession: s.isStrengthSession,
                       status: s.status,
+                      targetDistanceM: s.targetDistanceM,
+                      targetDurationSecs: s.targetDurationSecs,
+                      targetPaceMinPerKm: s.targetPaceMinPerKm,
                     }}
                   />
                 ))}

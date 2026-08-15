@@ -14,6 +14,7 @@
 import { db } from "@/lib/db"
 import { plannedWorkoutDays, plannedSessions } from "@/lib/db/schema"
 import type { PlanJson, CycleWeek, Weekday } from "@/lib/plan/types"
+import { resolveWeeklyMileageTarget, computeSessionTargets } from "@/lib/plan/targets"
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -71,13 +72,19 @@ export function mondayOfWeek(dateStr: string): string {
  * No assumption about cycle length. Works for 3-week, 4-week, 5-week, or
  * any-length cycles with any string IDs.
  */
-export function resolveCycleWeek(
+/**
+ * How many weeks (in cycle-index terms, unwrapped) have elapsed between the
+ * cycle's start and a target date. Shared by resolveCycleWeek (which wraps it
+ * modulo the cycle length) and the mileage-target resolver (which needs the
+ * unwrapped count to know how many full passes through the cycle have
+ * elapsed — see targets.ts).
+ */
+function computeWeekOrdinal(
   cycleWeeks: CycleWeek[],
   cycleStartDate: string,
   cycleStartWeekId: string,
   targetDateStr: string
-): CycleWeek {
-  const len = cycleWeeks.length
+): number {
   const startIdx = cycleWeeks.findIndex((w) => w.id === cycleStartWeekId)
   if (startIdx === -1) {
     throw new Error(
@@ -91,7 +98,18 @@ export function resolveCycleWeek(
   // Math.round handles any sub-millisecond floating-point drift from DST zones
   const daysFromStart = Math.round((targetMs - startMs) / MS_PER_DAY)
   const weeksDiff = Math.floor(daysFromStart / 7)
-  const cycleIdx = ((startIdx + weeksDiff) % len + len) % len
+  return startIdx + weeksDiff
+}
+
+export function resolveCycleWeek(
+  cycleWeeks: CycleWeek[],
+  cycleStartDate: string,
+  cycleStartWeekId: string,
+  targetDateStr: string
+): CycleWeek {
+  const len = cycleWeeks.length
+  const weekOrdinal = computeWeekOrdinal(cycleWeeks, cycleStartDate, cycleStartWeekId, targetDateStr)
+  const cycleIdx = ((weekOrdinal % len) + len) % len
 
   return cycleWeeks[cycleIdx]
 }
@@ -126,25 +144,37 @@ export interface DayPlan {
 /**
  * Pure function: compute one DayPlan per date in [fromDateStr, fromDateStr + days).
  * No DB access. Safe to call in tests without mocking.
+ *
+ * thresholdPaceMinPerKm, when supplied, is the athlete's goal-derived
+ * threshold-equivalent pace — the basis for filling any session's pace/
+ * duration target that its template doesn't already specify explicitly. See
+ * targets.ts for how these fill-in values are derived.
  */
 export function resolveDayPlans(
   planJson: PlanJson,
   cycleStartDate: string,
   cycleStartWeekId: string,
   fromDateStr: string,
-  days: number
+  days: number,
+  thresholdPaceMinPerKm: number | null = null
 ): DayPlan[] {
   const result: DayPlan[] = []
+  const cycleWeeks = planJson.cycleWeeks
+  const len = cycleWeeks.length
 
   for (let i = 0; i < days; i++) {
     const dateStr = addDays(fromDateStr, i)
     const weekday = getWeekdayName(dateStr)
-    const cycleWeek = resolveCycleWeek(
-      planJson.cycleWeeks, cycleStartDate, cycleStartWeekId, dateStr
-    )
+    const weekOrdinal = computeWeekOrdinal(cycleWeeks, cycleStartDate, cycleStartWeekId, dateStr)
+    const cycleWeek = cycleWeeks[((weekOrdinal % len) + len) % len]
 
     const dayTemplate = cycleWeek.days.find((dt) => dt.weekday === weekday)
     const sessions = dayTemplate?.sessions ?? []
+
+    const weeklyTarget = resolveWeeklyMileageTarget(
+      planJson.progressionBlocks, len, weekOrdinal, cycleWeek.isCutback === true
+    )
+    const weekSessionKinds = cycleWeek.days.flatMap((d) => d.sessions.map((s) => s.sessionKind))
 
     result.push({
       date: dateStr,
@@ -152,21 +182,26 @@ export function resolveDayPlans(
       cycleWeekId: cycleWeek.id,
       cycleWeekLabel: cycleWeek.label,
       isRestDay: sessions.length === 0,
-      sessions: sessions.map((s, idx) => ({
-        sessionKind: s.sessionKind,
-        customType: s.customType,
-        label: s.label,
-        prescription: s.prescription,
-        isRunSession: s.isRunSession,
-        isStrengthSession: s.isStrengthSession,
-        sequenceInDay: idx,
-        targetDistanceM: s.targetDistanceM,
-        targetDurationSecs: s.targetDurationSecs,
-        targetHrMin: s.targetHrMin,
-        targetHrMax: s.targetHrMax,
-        targetPaceMinPerKm: s.targetPaceMinPerKm,
-        intervalsJson: s.intervals ?? null,
-      })),
+      sessions: sessions.map((s, idx) => {
+        const computed = computeSessionTargets(
+          s.sessionKind, weekSessionKinds, weeklyTarget, thresholdPaceMinPerKm
+        )
+        return {
+          sessionKind: s.sessionKind,
+          customType: s.customType,
+          label: s.label,
+          prescription: s.prescription,
+          isRunSession: s.isRunSession,
+          isStrengthSession: s.isStrengthSession,
+          sequenceInDay: idx,
+          targetDistanceM: s.targetDistanceM ?? computed.targetDistanceM,
+          targetDurationSecs: s.targetDurationSecs ?? computed.targetDurationSecs,
+          targetHrMin: s.targetHrMin,
+          targetHrMax: s.targetHrMax,
+          targetPaceMinPerKm: s.targetPaceMinPerKm ?? computed.targetPaceMinPerKm,
+          intervalsJson: s.intervals ?? null,
+        }
+      }),
     })
   }
 
@@ -194,10 +229,11 @@ export async function generateSchedule(
   cycleStartDate: string,
   cycleStartWeekId: string,
   fromDateStr: string,
-  days: number
+  days: number,
+  thresholdPaceMinPerKm: number | null = null
 ): Promise<GenerateResult> {
   const dayPlans = resolveDayPlans(
-    planJson, cycleStartDate, cycleStartWeekId, fromDateStr, days
+    planJson, cycleStartDate, cycleStartWeekId, fromDateStr, days, thresholdPaceMinPerKm
   )
 
   let daysCreated = 0

@@ -15,6 +15,7 @@ import {
   fmtGoalPace,
   fmtGoalDuration,
   fmtGoalDistance,
+  fmtSessionTargets,
   minPerKmToMinPerMile,
   minPerMileToMinPerKm,
   METERS_PER_MILE,
@@ -236,6 +237,26 @@ describe("formatters", () => {
   it("formats non-standard distances in the requested units", () => {
     expect(fmtGoalDistance(8 * METERS_PER_MILE, "imperial")).toBe("8 mi")
     expect(fmtGoalDistance(8000, "metric")).toBe("8 km")
+  })
+})
+
+describe("fmtSessionTargets", () => {
+  it("joins distance, duration, and pace when all are present", () => {
+    const result = fmtSessionTargets(
+      { targetDistanceM: 8000, targetDurationSecs: 1800, targetPaceMinPerKm: 5 },
+      "metric",
+    )
+    expect(result).toBe("8 km · 30:00 · 5:00/km")
+  })
+
+  it("omits whichever targets are absent", () => {
+    expect(fmtSessionTargets({ targetDistanceM: 8000 }, "metric")).toBe("8 km")
+    expect(fmtSessionTargets({}, "metric")).toBeNull()
+  })
+
+  it("respects the requested unit system", () => {
+    const result = fmtSessionTargets({ targetPaceMinPerKm: 5 }, "imperial")
+    expect(result).toBe("8:03/mi")
   })
 })
 

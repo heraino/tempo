@@ -111,6 +111,25 @@ export function fmtGoalDistance(
   return `${mi % 1 === 0 ? mi.toFixed(0) : mi.toFixed(1)} mi`
 }
 
+export interface SessionTargetFields {
+  targetDistanceM?: number | null
+  targetDurationSecs?: number | null
+  targetPaceMinPerKm?: number | null
+}
+
+/** "3.1 mi · 27:30 · 8:52/mi" — distance · duration · pace, omitting whichever targets are absent. */
+export function fmtSessionTargets(
+  target: SessionTargetFields,
+  units: "imperial" | "metric",
+): string | null {
+  const parts = [
+    fmtGoalDistance(target.targetDistanceM, units),
+    fmtGoalDuration(target.targetDurationSecs),
+    fmtGoalPace(target.targetPaceMinPerKm, units),
+  ].filter((p): p is string => p != null)
+  return parts.length > 0 ? parts.join(" · ") : null
+}
+
 // ─── Input parsing ────────────────────────────────────────────────────────────
 
 /**

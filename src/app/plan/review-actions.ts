@@ -19,6 +19,8 @@ import { applyPlanMutation, PlanMutationError, type PlanMutationOp } from "@/lib
 import { planMutationSchema } from "@/lib/validation/planMutation"
 import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
+import { getActiveGoal } from "@/lib/services/goal.service"
+import { resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
 
 const ANALYTICS_VERSION = "1.0"
 const MAX_PROPOSALS = 4
@@ -276,6 +278,7 @@ export async function acceptProposal(
 
   // Generate forward schedule under the new version. Past days stay attached
   // to the old version — completed training is history and is never rewritten.
+  const goal = await getActiveGoal(userId).catch(() => null)
   await generateSchedule(
     userId,
     newVersion.id,
@@ -284,6 +287,7 @@ export async function acceptProposal(
     newVersion.cycleStartWeekId,
     todayStr,
     60,
+    goal ? resolveTargetPaceMinPerKm(goal) : null,
   ).catch(() => {})
 
   await db

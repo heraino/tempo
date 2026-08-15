@@ -22,7 +22,7 @@ import {
 import { validateProgramBlueprint } from "@/lib/validation/blueprint"
 import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
-import { describeGoal, weeksBetween, suggestPlanTitle } from "@/lib/goals/goal"
+import { describeGoal, weeksBetween, suggestPlanTitle, resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
 import type { TrainingGoal } from "@/lib/services/goal.service"
 import type { PlanJson } from "@/lib/plan/types"
 
@@ -261,6 +261,7 @@ export async function activateProgram(
     cycleStartWeekId,
     startDate,
     90,
+    goal ? resolveTargetPaceMinPerKm(goal) : null,
   )
 
   return { planVersionId: version.id }

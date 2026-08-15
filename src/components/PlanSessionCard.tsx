@@ -10,8 +10,9 @@ import {
   completeSessionAction,
 } from "@/app/plan/actions"
 import { sessionKindMeta, SWAPPABLE_KINDS } from "@/lib/plan/sessionKinds"
+import { fmtSessionTargets, type SessionTargetFields } from "@/lib/goals/goal"
 
-export interface PlanSession {
+export interface PlanSession extends SessionTargetFields {
   id: string
   sessionKind: string
   label: string
@@ -24,6 +25,7 @@ export interface PlanSession {
 interface Props {
   session: PlanSession
   dateStr: string
+  units?: "imperial" | "metric"
 }
 
 type Menu = null | "root" | "swap" | "move"
@@ -44,7 +46,7 @@ function dayLabel(dateStr: string): string {
   })
 }
 
-export function PlanSessionCard({ session, dateStr }: Props) {
+export function PlanSessionCard({ session, dateStr, units = "imperial" }: Props) {
   const router = useRouter()
   const [menu, setMenu] = useState<Menu>(null)
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +55,7 @@ export function PlanSessionCard({ session, dateStr }: Props) {
 
   const meta = sessionKindMeta(session.sessionKind)
   const isEditable = session.status === "planned" || session.status === "skipped"
+  const summary = fmtSessionTargets(session, units)
 
   useEffect(() => {
     if (!menu) return
@@ -109,6 +112,9 @@ export function PlanSessionCard({ session, dateStr }: Props) {
             {session.label}
           </p>
           <p className="text-sm text-gray-600 mt-1 leading-relaxed">{session.prescription}</p>
+          {summary && (
+            <p className="text-xs font-semibold text-gray-500 mt-1.5 tabular-nums">{summary}</p>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">

@@ -15,6 +15,8 @@ import { db } from "@/lib/db"
 import { trainingPlanVersions } from "@/lib/db/schema"
 import { eq, desc } from "drizzle-orm"
 import { generateSchedule } from "./scheduler"
+import { getActiveGoal } from "@/lib/services/goal.service"
+import { resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
 import type { PlanJson } from "./types"
 
 // ─── Seed PlanJson ────────────────────────────────────────────────────────────
@@ -200,6 +202,7 @@ export async function seedPlanVersion(
     })
     .returning()
 
+  const goal = await getActiveGoal(userId).catch(() => null)
   await generateSchedule(
     userId,
     version.id,
@@ -207,7 +210,8 @@ export async function seedPlanVersion(
     plan.startDate,
     plan.startWeek,
     plan.startDate,
-    daysToGenerate
+    daysToGenerate,
+    goal ? resolveTargetPaceMinPerKm(goal) : null,
   )
 
   return version
