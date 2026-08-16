@@ -104,30 +104,45 @@ export async function upsertUserPreferences(
   userId: string,
   prefs: Partial<UserPrefs>,
 ): Promise<void> {
-  await db
-    .insert(userPreferences)
-    .values({
-      id: crypto.randomUUID(),
-      userId,
-      unitsSystem: prefs.unitsSystem ?? "imperial",
-      timezone: prefs.timezone ?? null,
-      trainingMode: prefs.trainingMode ?? "goal_program",
-      runnerLevel: prefs.runnerLevel ?? null,
-      daysPerWeek: prefs.daysPerWeek ?? null,
-      longRunDay: prefs.longRunDay ?? null,
-      maxHr: prefs.maxHr ?? null,
-    })
-    .onConflictDoUpdate({
-      target: userPreferences.userId,
-      set: {
-        ...(prefs.unitsSystem != null ? { unitsSystem: prefs.unitsSystem } : {}),
-        ...(prefs.timezone !== undefined ? { timezone: prefs.timezone } : {}),
-        ...(prefs.trainingMode != null ? { trainingMode: prefs.trainingMode } : {}),
-        ...(prefs.runnerLevel !== undefined ? { runnerLevel: prefs.runnerLevel } : {}),
-        ...(prefs.daysPerWeek !== undefined ? { daysPerWeek: prefs.daysPerWeek } : {}),
-        ...(prefs.longRunDay !== undefined ? { longRunDay: prefs.longRunDay } : {}),
-        ...(prefs.maxHr !== undefined ? { maxHr: prefs.maxHr } : {}),
-        updatedAt: new Date(),
-      },
-    })
+  const baseValues = {
+    id: crypto.randomUUID(),
+    userId,
+    unitsSystem: prefs.unitsSystem ?? "imperial",
+    timezone: prefs.timezone ?? null,
+    trainingMode: prefs.trainingMode ?? "goal_program",
+    runnerLevel: prefs.runnerLevel ?? null,
+    daysPerWeek: prefs.daysPerWeek ?? null,
+    longRunDay: prefs.longRunDay ?? null,
+  }
+  const baseSet = {
+    ...(prefs.unitsSystem != null ? { unitsSystem: prefs.unitsSystem } : {}),
+    ...(prefs.timezone !== undefined ? { timezone: prefs.timezone } : {}),
+    ...(prefs.trainingMode != null ? { trainingMode: prefs.trainingMode } : {}),
+    ...(prefs.runnerLevel !== undefined ? { runnerLevel: prefs.runnerLevel } : {}),
+    ...(prefs.daysPerWeek !== undefined ? { daysPerWeek: prefs.daysPerWeek } : {}),
+    ...(prefs.longRunDay !== undefined ? { longRunDay: prefs.longRunDay } : {}),
+    updatedAt: new Date(),
+  }
+
+  try {
+    await db
+      .insert(userPreferences)
+      .values({ ...baseValues, maxHr: prefs.maxHr ?? null })
+      .onConflictDoUpdate({
+        target: userPreferences.userId,
+        set: { ...baseSet, ...(prefs.maxHr !== undefined ? { maxHr: prefs.maxHr } : {}) },
+      })
+  } catch {
+    // max_hr may not exist yet on databases that have not run migration 0009 —
+    // retry without it so the rest of the save still succeeds rather than
+    // failing the whole preferences write over one missing column. If this
+    // retry also fails, the real error propagates from here instead.
+    await db
+      .insert(userPreferences)
+      .values(baseValues)
+      .onConflictDoUpdate({
+        target: userPreferences.userId,
+        set: baseSet,
+      })
+  }
 }
