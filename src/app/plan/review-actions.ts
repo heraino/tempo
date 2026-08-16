@@ -20,6 +20,7 @@ import { planMutationSchema } from "@/lib/validation/planMutation"
 import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
 import { getActiveGoal } from "@/lib/services/goal.service"
+import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
 
 const ANALYTICS_VERSION = "1.0"
@@ -278,7 +279,10 @@ export async function acceptProposal(
 
   // Generate forward schedule under the new version. Past days stay attached
   // to the old version — completed training is history and is never rewritten.
-  const goal = await getActiveGoal(userId).catch(() => null)
+  const [goal, prefs] = await Promise.all([
+    getActiveGoal(userId).catch(() => null),
+    getUserPreferences(userId).catch(() => null),
+  ])
   await generateSchedule(
     userId,
     newVersion.id,
@@ -288,6 +292,7 @@ export async function acceptProposal(
     todayStr,
     60,
     goal ? resolveTargetPaceMinPerKm(goal) : null,
+    prefs?.maxHr ?? null,
   ).catch(() => {})
 
   await db

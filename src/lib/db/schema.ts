@@ -433,6 +433,9 @@ export const userPreferences = pgTable("user_preferences", {
   // Athlete availability, retained so a program can be regenerated later
   daysPerWeek: integer("days_per_week"),
   longRunDay: text("long_run_day"),
+  // Self-reported max heart rate (bpm). Basis for the %-of-max HR zones shown
+  // on planned sessions; null means no HR targets are shown, never guessed.
+  maxHr: integer("max_hr"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 })

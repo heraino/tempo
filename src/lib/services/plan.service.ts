@@ -5,6 +5,7 @@ import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
 import { seedPlanVersion } from "@/lib/plan/seed"
 import { getActiveGoal } from "@/lib/services/goal.service"
+import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
 import type { DayPlan, SessionPlan } from "@/lib/plan/scheduler"
 
@@ -126,12 +127,16 @@ export async function getDayWithSessions(
 
   // Ensure this date is generated
   const planJson = validatePlanJson(planVersion.planJson)
-  const goal = await getActiveGoal(userId).catch(() => null)
+  const [goal, prefs] = await Promise.all([
+    getActiveGoal(userId).catch(() => null),
+    getUserPreferences(userId).catch(() => null),
+  ])
   await generateSchedule(
     userId, planVersion.id, planJson,
     planVersion.cycleStartDate, planVersion.cycleStartWeekId,
     dateStr, 1,
     goal ? resolveTargetPaceMinPerKm(goal) : null,
+    prefs?.maxHr ?? null,
   )
 
   const dayRows = await db
@@ -214,12 +219,16 @@ export async function getScheduleRange(
   }
 
   // Ensure all requested days are generated
-  const goal = await getActiveGoal(userId).catch(() => null)
+  const [goal, prefs] = await Promise.all([
+    getActiveGoal(userId).catch(() => null),
+    getUserPreferences(userId).catch(() => null),
+  ])
   await generateSchedule(
     userId, planVersion.id, planJson,
     planVersion.cycleStartDate, planVersion.cycleStartWeekId,
     fromDateStr, days,
     goal ? resolveTargetPaceMinPerKm(goal) : null,
+    prefs?.maxHr ?? null,
   )
 
   // Compute inclusive end date for query

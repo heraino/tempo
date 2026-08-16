@@ -118,4 +118,29 @@ describe("computeSessionTargets", () => {
     expect(result.targetDistanceM).toBeDefined()
     expect(result.targetDurationSecs).toBeUndefined()
   })
+
+  it("omits HR range when no max HR is supplied", () => {
+    const result = computeSessionTargets("easy", [...WEEK_KINDS], null, null)
+    expect(result.targetHrMin).toBeUndefined()
+    expect(result.targetHrMax).toBeUndefined()
+  })
+
+  it("derives HR range as a percentage of max HR, harder kinds running higher", () => {
+    const maxHr = 190
+    const recovery = computeSessionTargets("recovery", [...WEEK_KINDS], null, null, maxHr)
+    const easy = computeSessionTargets("easy", [...WEEK_KINDS], null, null, maxHr)
+    const threshold = computeSessionTargets("threshold", [...WEEK_KINDS], null, null, maxHr)
+
+    expect(recovery.targetHrMin).toBe(Math.round(maxHr * 0.6))
+    expect(recovery.targetHrMax).toBe(Math.round(maxHr * 0.68))
+    expect(easy.targetHrMin!).toBeGreaterThan(recovery.targetHrMin!)
+    expect(threshold.targetHrMin!).toBeGreaterThan(easy.targetHrMin!)
+    expect(threshold.targetHrMax!).toBeLessThanOrEqual(maxHr)
+  })
+
+  it("omits HR range for a kind with no defined zone (e.g. strength)", () => {
+    const result = computeSessionTargets("strength", [...WEEK_KINDS], null, null, 190)
+    expect(result.targetHrMin).toBeUndefined()
+    expect(result.targetHrMax).toBeUndefined()
+  })
 })

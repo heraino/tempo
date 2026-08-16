@@ -545,6 +545,21 @@ describe("resolveDayPlans — deterministic session targets", () => {
     expect(elastic.targetPaceMinPerKm).toBeUndefined()
   })
 
+  it("leaves HR range undefined when no max HR is supplied", () => {
+    const days = resolveDayPlans(SEED_PLAN_JSON, START, "A", "2026-07-12", 1, 5.0) // no maxHr arg
+    const long = days[0].sessions.find((s) => s.sessionKind === "long")!
+    expect(long.targetHrMin).toBeUndefined()
+    expect(long.targetHrMax).toBeUndefined()
+  })
+
+  it("fills HR range once a max HR is supplied", () => {
+    const days = resolveDayPlans(SEED_PLAN_JSON, START, "A", "2026-07-12", 1, 5.0, 190)
+    const long = days[0].sessions.find((s) => s.sessionKind === "long")!
+    expect(long.targetHrMin).toBeGreaterThan(0)
+    expect(long.targetHrMax!).toBeGreaterThan(long.targetHrMin!)
+    expect(long.targetHrMax!).toBeLessThanOrEqual(190)
+  })
+
   it("gives a cutback week's long run a smaller distance target than a build week's", () => {
     // Week A (build) Sunday vs Week D (cutback) Sunday, one cycle later
     const buildDays = resolveDayPlans(SEED_PLAN_JSON, START, "A", "2026-07-12", 1)

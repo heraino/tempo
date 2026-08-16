@@ -115,6 +115,8 @@ export default async function PlanDatePage({
                       targetDistanceM: s.targetDistanceM,
                       targetDurationSecs: s.targetDurationSecs,
                       targetPaceMinPerKm: s.targetPaceMinPerKm,
+                      targetHrMin: s.targetHrMin,
+                      targetHrMax: s.targetHrMax,
                     }}
                   />
                 ))}

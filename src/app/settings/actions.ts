@@ -31,10 +31,14 @@ export async function savePreferences(formData: FormData) {
 
   const unitsSystem = formData.get("unitsSystem") as UnitsSystem | null
   const timezone = formData.get("timezone") as string | null
+  const maxHrRaw = formData.get("maxHr") as string | null
+  const maxHrParsed = maxHrRaw ? parseInt(maxHrRaw, 10) : NaN
+  const maxHr = Number.isFinite(maxHrParsed) && maxHrParsed > 0 ? maxHrParsed : null
 
   await upsertUserPreferences(session.user.id, {
     ...(unitsSystem ? { unitsSystem } : {}),
     ...(timezone ? { timezone } : {}),
+    maxHr,
   })
 
   revalidatePath("/dashboard")

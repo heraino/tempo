@@ -146,9 +146,10 @@ export interface DayPlan {
  * No DB access. Safe to call in tests without mocking.
  *
  * thresholdPaceMinPerKm, when supplied, is the athlete's goal-derived
- * threshold-equivalent pace — the basis for filling any session's pace/
- * duration target that its template doesn't already specify explicitly. See
- * targets.ts for how these fill-in values are derived.
+ * threshold-equivalent pace, and maxHr is their self-reported max heart
+ * rate — the basis for filling any session's pace/duration/HR target that
+ * its template doesn't already specify explicitly. See targets.ts for how
+ * these fill-in values are derived.
  */
 export function resolveDayPlans(
   planJson: PlanJson,
@@ -156,7 +157,8 @@ export function resolveDayPlans(
   cycleStartWeekId: string,
   fromDateStr: string,
   days: number,
-  thresholdPaceMinPerKm: number | null = null
+  thresholdPaceMinPerKm: number | null = null,
+  maxHr: number | null = null
 ): DayPlan[] {
   const result: DayPlan[] = []
   const cycleWeeks = planJson.cycleWeeks
@@ -184,7 +186,7 @@ export function resolveDayPlans(
       isRestDay: sessions.length === 0,
       sessions: sessions.map((s, idx) => {
         const computed = computeSessionTargets(
-          s.sessionKind, weekSessionKinds, weeklyTarget, thresholdPaceMinPerKm
+          s.sessionKind, weekSessionKinds, weeklyTarget, thresholdPaceMinPerKm, maxHr
         )
         return {
           sessionKind: s.sessionKind,
@@ -196,8 +198,8 @@ export function resolveDayPlans(
           sequenceInDay: idx,
           targetDistanceM: s.targetDistanceM ?? computed.targetDistanceM,
           targetDurationSecs: s.targetDurationSecs ?? computed.targetDurationSecs,
-          targetHrMin: s.targetHrMin,
-          targetHrMax: s.targetHrMax,
+          targetHrMin: s.targetHrMin ?? computed.targetHrMin,
+          targetHrMax: s.targetHrMax ?? computed.targetHrMax,
           targetPaceMinPerKm: s.targetPaceMinPerKm ?? computed.targetPaceMinPerKm,
           intervalsJson: s.intervals ?? null,
         }
@@ -230,10 +232,11 @@ export async function generateSchedule(
   cycleStartWeekId: string,
   fromDateStr: string,
   days: number,
-  thresholdPaceMinPerKm: number | null = null
+  thresholdPaceMinPerKm: number | null = null,
+  maxHr: number | null = null
 ): Promise<GenerateResult> {
   const dayPlans = resolveDayPlans(
-    planJson, cycleStartDate, cycleStartWeekId, fromDateStr, days, thresholdPaceMinPerKm
+    planJson, cycleStartDate, cycleStartWeekId, fromDateStr, days, thresholdPaceMinPerKm, maxHr
   )
 
   let daysCreated = 0

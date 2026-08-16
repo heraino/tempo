@@ -95,7 +95,7 @@ export default async function SettingsPage() {
           </section>
 
           {/* Timezone */}
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
             <h2 className="text-base font-semibold text-gray-900 mb-1">Timezone</h2>
             <p className="text-xs text-gray-400 mb-3">
               Auto-detected from your device. Override if the wrong day is shown.
@@ -104,6 +104,28 @@ export default async function SettingsPage() {
             {prefs.timezone && (
               <p className="text-xs text-gray-400 mt-1.5">Saved: {prefs.timezone}</p>
             )}
+          </section>
+
+          {/* Max heart rate */}
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
+            <h2 className="text-base font-semibold text-gray-900 mb-1">Max heart rate</h2>
+            <p className="text-xs text-gray-400 mb-3">
+              Optional. Once set, planned sessions show a target heart-rate range
+              alongside pace. Leave blank to hide HR targets.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                name="maxHr"
+                inputMode="numeric"
+                min={100}
+                max={230}
+                placeholder="e.g. 185"
+                defaultValue={prefs.maxHr ?? ""}
+                className="w-full max-w-[160px] rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+              <span className="text-sm text-gray-400">bpm</span>
+            </div>
           </section>
 
           <button

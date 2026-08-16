@@ -115,9 +115,20 @@ export interface SessionTargetFields {
   targetDistanceM?: number | null
   targetDurationSecs?: number | null
   targetPaceMinPerKm?: number | null
+  targetHrMin?: number | null
+  targetHrMax?: number | null
 }
 
-/** "3.1 mi · 27:30 · 8:52/mi" — distance · duration · pace, omitting whichever targets are absent. */
+/** "142-158 bpm" — a heart-rate range, or null if either bound is missing. */
+export function fmtHrRange(
+  min: number | null | undefined,
+  max: number | null | undefined,
+): string | null {
+  if (min == null || max == null || min <= 0 || max <= 0) return null
+  return `${Math.round(min)}–${Math.round(max)} bpm`
+}
+
+/** "3.1 mi · 27:30 · 8:52/mi · 142-158 bpm" — distance · duration · pace · HR, omitting whichever targets are absent. */
 export function fmtSessionTargets(
   target: SessionTargetFields,
   units: "imperial" | "metric",
@@ -126,6 +137,7 @@ export function fmtSessionTargets(
     fmtGoalDistance(target.targetDistanceM, units),
     fmtGoalDuration(target.targetDurationSecs),
     fmtGoalPace(target.targetPaceMinPerKm, units),
+    fmtHrRange(target.targetHrMin, target.targetHrMax),
   ].filter((p): p is string => p != null)
   return parts.length > 0 ? parts.join(" · ") : null
 }

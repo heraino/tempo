@@ -13,6 +13,7 @@ export interface UserPrefs {
   runnerLevel: RunnerLevel | null
   daysPerWeek: number | null
   longRunDay: string | null
+  maxHr: number | null
 }
 
 const DEFAULT_PREFS: UserPrefs = {
@@ -22,6 +23,7 @@ const DEFAULT_PREFS: UserPrefs = {
   runnerLevel: null,
   daysPerWeek: null,
   longRunDay: null,
+  maxHr: null,
 }
 
 export async function getUserPreferences(userId: string): Promise<UserPrefs> {
@@ -34,6 +36,7 @@ export async function getUserPreferences(userId: string): Promise<UserPrefs> {
         runnerLevel: userPreferences.runnerLevel,
         daysPerWeek: userPreferences.daysPerWeek,
         longRunDay: userPreferences.longRunDay,
+        maxHr: userPreferences.maxHr,
       })
       .from(userPreferences)
       .where(eq(userPreferences.userId, userId))
@@ -46,14 +49,19 @@ export async function getUserPreferences(userId: string): Promise<UserPrefs> {
       runnerLevel: (rows[0].runnerLevel ?? null) as RunnerLevel | null,
       daysPerWeek: rows[0].daysPerWeek ?? null,
       longRunDay: rows[0].longRunDay ?? null,
+      maxHr: rows[0].maxHr ?? null,
     }
   } catch {
-    // Columns may not exist yet on databases that have not run migration 0008
+    // max_hr may not exist yet on databases that have not run migration 0009
     try {
       const rows = await db
         .select({
           unitsSystem: userPreferences.unitsSystem,
           timezone: userPreferences.timezone,
+          trainingMode: userPreferences.trainingMode,
+          runnerLevel: userPreferences.runnerLevel,
+          daysPerWeek: userPreferences.daysPerWeek,
+          longRunDay: userPreferences.longRunDay,
         })
         .from(userPreferences)
         .where(eq(userPreferences.userId, userId))
@@ -63,9 +71,31 @@ export async function getUserPreferences(userId: string): Promise<UserPrefs> {
         ...DEFAULT_PREFS,
         unitsSystem: (rows[0].unitsSystem ?? "imperial") as UnitsSystem,
         timezone: rows[0].timezone ?? null,
+        trainingMode: (rows[0].trainingMode ?? "goal_program") as TrainingMode,
+        runnerLevel: (rows[0].runnerLevel ?? null) as RunnerLevel | null,
+        daysPerWeek: rows[0].daysPerWeek ?? null,
+        longRunDay: rows[0].longRunDay ?? null,
       }
     } catch {
-      return DEFAULT_PREFS
+      // Columns may not exist yet on databases that have not run migration 0008
+      try {
+        const rows = await db
+          .select({
+            unitsSystem: userPreferences.unitsSystem,
+            timezone: userPreferences.timezone,
+          })
+          .from(userPreferences)
+          .where(eq(userPreferences.userId, userId))
+          .limit(1)
+        if (!rows[0]) return DEFAULT_PREFS
+        return {
+          ...DEFAULT_PREFS,
+          unitsSystem: (rows[0].unitsSystem ?? "imperial") as UnitsSystem,
+          timezone: rows[0].timezone ?? null,
+        }
+      } catch {
+        return DEFAULT_PREFS
+      }
     }
   }
 }
@@ -85,6 +115,7 @@ export async function upsertUserPreferences(
       runnerLevel: prefs.runnerLevel ?? null,
       daysPerWeek: prefs.daysPerWeek ?? null,
       longRunDay: prefs.longRunDay ?? null,
+      maxHr: prefs.maxHr ?? null,
     })
     .onConflictDoUpdate({
       target: userPreferences.userId,
@@ -95,6 +126,7 @@ export async function upsertUserPreferences(
         ...(prefs.runnerLevel !== undefined ? { runnerLevel: prefs.runnerLevel } : {}),
         ...(prefs.daysPerWeek !== undefined ? { daysPerWeek: prefs.daysPerWeek } : {}),
         ...(prefs.longRunDay !== undefined ? { longRunDay: prefs.longRunDay } : {}),
+        ...(prefs.maxHr !== undefined ? { maxHr: prefs.maxHr } : {}),
         updatedAt: new Date(),
       },
     })

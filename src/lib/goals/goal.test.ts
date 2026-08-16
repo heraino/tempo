@@ -16,6 +16,7 @@ import {
   fmtGoalDuration,
   fmtGoalDistance,
   fmtSessionTargets,
+  fmtHrRange,
   minPerKmToMinPerMile,
   minPerMileToMinPerKm,
   METERS_PER_MILE,
@@ -257,6 +258,27 @@ describe("fmtSessionTargets", () => {
   it("respects the requested unit system", () => {
     const result = fmtSessionTargets({ targetPaceMinPerKm: 5 }, "imperial")
     expect(result).toBe("8:03/mi")
+  })
+
+  it("appends HR range when both bounds are present", () => {
+    const result = fmtSessionTargets({ targetHrMin: 142, targetHrMax: 158 }, "metric")
+    expect(result).toBe("142–158 bpm")
+  })
+
+  it("omits HR range when only one bound is present", () => {
+    expect(fmtSessionTargets({ targetHrMin: 142 }, "metric")).toBeNull()
+  })
+})
+
+describe("fmtHrRange", () => {
+  it("formats a valid range", () => {
+    expect(fmtHrRange(142, 158)).toBe("142–158 bpm")
+  })
+
+  it("returns null when either bound is missing or non-positive", () => {
+    expect(fmtHrRange(null, 158)).toBeNull()
+    expect(fmtHrRange(142, null)).toBeNull()
+    expect(fmtHrRange(0, 158)).toBeNull()
   })
 })
 

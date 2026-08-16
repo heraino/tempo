@@ -23,6 +23,7 @@ import { validateProgramBlueprint } from "@/lib/validation/blueprint"
 import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
 import { describeGoal, weeksBetween, suggestPlanTitle, resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
+import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import type { TrainingGoal } from "@/lib/services/goal.service"
 import type { PlanJson } from "@/lib/plan/types"
 
@@ -253,6 +254,7 @@ export async function activateProgram(
       .where(eq(trainingPlanVersions.id, priorVersion.id))
   }
 
+  const prefs = await getUserPreferences(userId).catch(() => null)
   await generateSchedule(
     userId,
     version.id,
@@ -262,6 +264,7 @@ export async function activateProgram(
     startDate,
     90,
     goal ? resolveTargetPaceMinPerKm(goal) : null,
+    prefs?.maxHr ?? null,
   )
 
   return { planVersionId: version.id }

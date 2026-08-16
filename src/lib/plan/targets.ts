@@ -1,13 +1,13 @@
 /**
- * Deterministic per-session distance, pace, and duration targets.
+ * Deterministic per-session distance, pace, duration, and heart-rate targets.
  *
  * These are coaching heuristics, not measured physiology: mileage is split
- * across a week's sessions by a fixed relative-weight table, and pace is a
- * ratio of the goal's threshold-equivalent pace — mirroring the 0.85
- * easy:threshold ratio already used in readiness.ts. They only ever fill a
- * gap; an explicit value already on a session template always wins. And they
- * are omitted entirely wherever an input they'd need (a progression block, a
- * goal pace) doesn't exist, rather than guessed.
+ * across a week's sessions by a fixed relative-weight table, pace is a ratio
+ * of the goal's threshold-equivalent pace — mirroring the 0.85 easy:threshold
+ * ratio already used in readiness.ts — and HR range is a %-of-max-HR band.
+ * They only ever fill a gap; an explicit value already on a session template
+ * always wins. And they are omitted entirely wherever an input they'd need (a
+ * progression block, a goal pace, a max HR) doesn't exist, rather than guessed.
  */
 
 import type { SessionKind, ProgressionBlock } from "./types"
@@ -33,6 +33,17 @@ const SPEED_RATIO: Partial<Record<SessionKind, number>> = {
   easy: 0.85,
   recovery: 0.75,
   strides: 0.85,
+}
+
+/** Heart-rate zone as a fraction of max HR, by kind. Long run's lower bound matches easy (same target effort); its upper bound runs a little higher to allow for cardiac drift over the extra duration. */
+const HR_ZONE_PCT: Partial<Record<SessionKind, { min: number; max: number }>> = {
+  recovery: { min: 0.6, max: 0.68 },
+  easy: { min: 0.65, max: 0.75 },
+  long: { min: 0.65, max: 0.78 },
+  strides: { min: 0.65, max: 0.8 },
+  progression: { min: 0.7, max: 0.88 },
+  tempo: { min: 0.8, max: 0.87 },
+  threshold: { min: 0.82, max: 0.9 },
 }
 
 export interface WeeklyMileageTarget {
@@ -69,10 +80,12 @@ export interface SessionTargets {
   targetDistanceM?: number
   targetPaceMinPerKm?: number
   targetDurationSecs?: number
+  targetHrMin?: number
+  targetHrMax?: number
 }
 
 /**
- * Derive distance/pace/duration for one session of a given kind.
+ * Derive distance/pace/duration/HR for one session of a given kind.
  * weekSessionKinds is every session kind the recurring cycle week template
  * schedules across all seven days — the basis for splitting the week's
  * mileage target by relative weight.
@@ -82,6 +95,7 @@ export function computeSessionTargets(
   weekSessionKinds: SessionKind[],
   weeklyTarget: WeeklyMileageTarget | null,
   thresholdPaceMinPerKm: number | null,
+  maxHr: number | null = null,
 ): SessionTargets {
   const weight = DISTANCE_WEIGHT[kind]
   let targetDistanceM: number | undefined
@@ -101,5 +115,9 @@ export function computeSessionTargets(
       ? (targetDistanceM / 1000) * targetPaceMinPerKm * 60
       : undefined
 
-  return { targetDistanceM, targetPaceMinPerKm, targetDurationSecs }
+  const hrZone = HR_ZONE_PCT[kind]
+  const targetHrMin = hrZone != null && maxHr != null ? Math.round(maxHr * hrZone.min) : undefined
+  const targetHrMax = hrZone != null && maxHr != null ? Math.round(maxHr * hrZone.max) : undefined
+
+  return { targetDistanceM, targetPaceMinPerKm, targetDurationSecs, targetHrMin, targetHrMax }
 }
