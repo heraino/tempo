@@ -25,9 +25,9 @@ export async function syncTimezone(timezone: string): Promise<{ changed: boolean
   }
 }
 
-export async function savePreferences(formData: FormData) {
+export async function savePreferences(formData: FormData): Promise<{ ok: boolean; error?: string }> {
   const session = await auth()
-  if (!session?.user?.id) return { error: "Not signed in" }
+  if (!session?.user?.id) return { ok: false, error: "Not signed in" }
 
   const unitsSystem = formData.get("unitsSystem") as UnitsSystem | null
   const timezone = formData.get("timezone") as string | null
@@ -35,11 +35,19 @@ export async function savePreferences(formData: FormData) {
   const maxHrParsed = maxHrRaw ? parseInt(maxHrRaw, 10) : NaN
   const maxHr = Number.isFinite(maxHrParsed) && maxHrParsed > 0 ? maxHrParsed : null
 
-  await upsertUserPreferences(session.user.id, {
-    ...(unitsSystem ? { unitsSystem } : {}),
-    ...(timezone ? { timezone } : {}),
-    maxHr,
-  })
+  try {
+    await upsertUserPreferences(session.user.id, {
+      ...(unitsSystem ? { unitsSystem } : {}),
+      ...(timezone ? { timezone } : {}),
+      maxHr,
+    })
+  } catch {
+    // A form action's return value is only visible to a client caller — the
+    // plain <form action={...}> wrapper this feeds today discards it, so this
+    // still surfaces as "nothing happened" rather than a message. That's
+    // still a large improvement over an uncaught exception crashing the page.
+    return { ok: false, error: "Could not save settings. Try again shortly." }
+  }
 
   revalidatePath("/dashboard")
   revalidatePath("/settings")

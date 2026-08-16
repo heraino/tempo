@@ -6,13 +6,7 @@ import { getActiveGoal } from "@/lib/services/goal.service"
 import { getActivePlanVersion } from "@/lib/services/plan.service"
 import { describeGoal } from "@/lib/goals/goal"
 import { TrainingModeSection } from "@/components/TrainingModeSection"
-import { savePreferences } from "./actions"
-import { TimezoneField } from "@/components/TimezoneDetectButton"
-
-async function save(formData: FormData): Promise<void> {
-  "use server"
-  await savePreferences(formData)
-}
+import { SettingsForm } from "@/components/SettingsForm"
 
 export default async function SettingsPage() {
   const session = await auth()
@@ -59,82 +53,7 @@ export default async function SettingsPage() {
           </Link>
         </section>
 
-        <form action={save}>
-          {/* Units */}
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
-            <h2 className="text-base font-semibold text-gray-900 mb-1">Units</h2>
-            <p className="text-xs text-gray-400 mb-4">Controls how distances, pace, and temperature are displayed</p>
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="unitsSystem"
-                  value="imperial"
-                  defaultChecked={prefs.unitsSystem !== "metric"}
-                  className="accent-orange-500 w-4 h-4"
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Imperial</p>
-                  <p className="text-xs text-gray-400">Miles, feet, °F</p>
-                </div>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="unitsSystem"
-                  value="metric"
-                  defaultChecked={prefs.unitsSystem === "metric"}
-                  className="accent-orange-500 w-4 h-4"
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Metric</p>
-                  <p className="text-xs text-gray-400">Kilometers, meters, °C</p>
-                </div>
-              </label>
-            </div>
-          </section>
-
-          {/* Timezone */}
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-4">
-            <h2 className="text-base font-semibold text-gray-900 mb-1">Timezone</h2>
-            <p className="text-xs text-gray-400 mb-3">
-              Auto-detected from your device. Override if the wrong day is shown.
-            </p>
-            <TimezoneField savedValue={prefs.timezone} />
-            {prefs.timezone && (
-              <p className="text-xs text-gray-400 mt-1.5">Saved: {prefs.timezone}</p>
-            )}
-          </section>
-
-          {/* Max heart rate */}
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-gray-900 mb-1">Max heart rate</h2>
-            <p className="text-xs text-gray-400 mb-3">
-              Optional. Once set, planned sessions show a target heart-rate range
-              alongside pace. Leave blank to hide HR targets.
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                name="maxHr"
-                inputMode="numeric"
-                min={100}
-                max={230}
-                placeholder="e.g. 185"
-                defaultValue={prefs.maxHr ?? ""}
-                className="w-full max-w-[160px] rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
-              />
-              <span className="text-sm text-gray-400">bpm</span>
-            </div>
-          </section>
-
-          <button
-            type="submit"
-            className="w-full rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white hover:bg-orange-600 active:bg-orange-700 transition-colors"
-          >
-            Save settings
-          </button>
-        </form>
+        <SettingsForm unitsSystem={units} timezone={prefs.timezone} maxHr={prefs.maxHr} />
 
         {/* Data import */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
