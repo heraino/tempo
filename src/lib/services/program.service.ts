@@ -22,8 +22,10 @@ import {
 import { validateProgramBlueprint } from "@/lib/validation/blueprint"
 import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
-import { describeGoal, weeksBetween, suggestPlanTitle, resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
+import { resolveCurrentThresholdPaceMinPerKm } from "@/lib/plan/targets"
+import { describeGoal, weeksBetween, suggestPlanTitle } from "@/lib/goals/goal"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
+import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import type { TrainingGoal } from "@/lib/services/goal.service"
 import type { PlanJson } from "@/lib/plan/types"
 
@@ -254,7 +256,10 @@ export async function activateProgram(
       .where(eq(trainingPlanVersions.id, priorVersion.id))
   }
 
-  const prefs = await getUserPreferences(userId).catch(() => null)
+  const [prefs, kpis] = await Promise.all([
+    getUserPreferences(userId).catch(() => null),
+    getKpiSnapshot(userId).catch(() => null),
+  ])
   await generateSchedule(
     userId,
     version.id,
@@ -263,7 +268,7 @@ export async function activateProgram(
     cycleStartWeekId,
     startDate,
     90,
-    goal ? resolveTargetPaceMinPerKm(goal) : null,
+    resolveCurrentThresholdPaceMinPerKm(kpis, goal),
     prefs?.maxHr ?? null,
   )
 

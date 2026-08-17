@@ -4,9 +4,10 @@ import { and, eq, desc, gte, lte } from "drizzle-orm"
 import { validatePlanJson } from "@/lib/validation/plan"
 import { generateSchedule } from "@/lib/plan/scheduler"
 import { seedPlanVersion } from "@/lib/plan/seed"
+import { resolveCurrentThresholdPaceMinPerKm } from "@/lib/plan/targets"
 import { getActiveGoal } from "@/lib/services/goal.service"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
-import { resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
+import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import type { DayPlan, SessionPlan } from "@/lib/plan/scheduler"
 
 export async function getActivePlan(userId: string) {
@@ -127,15 +128,16 @@ export async function getDayWithSessions(
 
   // Ensure this date is generated
   const planJson = validatePlanJson(planVersion.planJson)
-  const [goal, prefs] = await Promise.all([
+  const [goal, prefs, kpis] = await Promise.all([
     getActiveGoal(userId).catch(() => null),
     getUserPreferences(userId).catch(() => null),
+    getKpiSnapshot(userId).catch(() => null),
   ])
   await generateSchedule(
     userId, planVersion.id, planJson,
     planVersion.cycleStartDate, planVersion.cycleStartWeekId,
     dateStr, 1,
-    goal ? resolveTargetPaceMinPerKm(goal) : null,
+    resolveCurrentThresholdPaceMinPerKm(kpis, goal),
     prefs?.maxHr ?? null,
   )
 
@@ -219,15 +221,16 @@ export async function getScheduleRange(
   }
 
   // Ensure all requested days are generated
-  const [goal, prefs] = await Promise.all([
+  const [goal, prefs, kpis] = await Promise.all([
     getActiveGoal(userId).catch(() => null),
     getUserPreferences(userId).catch(() => null),
+    getKpiSnapshot(userId).catch(() => null),
   ])
   await generateSchedule(
     userId, planVersion.id, planJson,
     planVersion.cycleStartDate, planVersion.cycleStartWeekId,
     fromDateStr, days,
-    goal ? resolveTargetPaceMinPerKm(goal) : null,
+    resolveCurrentThresholdPaceMinPerKm(kpis, goal),
     prefs?.maxHr ?? null,
   )
 

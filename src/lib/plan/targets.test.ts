@@ -1,7 +1,22 @@
 import { describe, it, expect } from "vitest"
-import { resolveWeeklyMileageTarget, computeSessionTargets } from "./targets"
+import { resolveWeeklyMileageTarget, computeSessionTargets, resolveCurrentThresholdPaceMinPerKm } from "./targets"
 import { METERS_PER_MILE } from "@/lib/goals/goal"
 import type { ProgressionBlock } from "./types"
+import type { KpiSnapshot } from "@/lib/analytics/kpis"
+
+function emptyKpis(overrides: Partial<KpiSnapshot> = {}): KpiSnapshot {
+  return {
+    weeklyMileage: null, easyPaceAt140Mps: null, easyPaceAt145Mps: null,
+    aerobicEfficiency: null, hrDrift: null, decouplingPct: null,
+    thresholdSpeedMps: null, thresholdSpeedMpsPrev: null,
+    thresholdAvgHr: null, thresholdMaxHr: null, longRunDistanceM: null,
+    cadenceEasy: null, cadenceTempo: null, cadenceTempoPrev: null,
+    recentWorkoutCount: 0, weeklyRunFrequency: null,
+    vertOscMm: null, stanceTimeMs: null, stanceTimePct: null,
+    vertRatio: null, strideLengthM: null,
+    ...overrides,
+  }
+}
 
 const BLOCKS: ProgressionBlock[] = [
   { blockNumber: 1, buildMinMi: 20, buildMaxMi: 22, cutbackMinMi: 15, cutbackMaxMi: 17 },
@@ -142,5 +157,44 @@ describe("computeSessionTargets", () => {
     const result = computeSessionTargets("strength", [...WEEK_KINDS], null, null, 190)
     expect(result.targetHrMin).toBeUndefined()
     expect(result.targetHrMax).toBeUndefined()
+  })
+})
+
+describe("resolveCurrentThresholdPaceMinPerKm", () => {
+  it("prefers a directly measured threshold pace over everything else", () => {
+    const kpis = emptyKpis({ thresholdSpeedMps: 4.0, easyPaceAt140Mps: 2.5 }) // measured 4:10/km threshold
+    const goal = { goalType: "race", targetDistanceM: 21097.5, targetDurationSecs: 5400 } // ~4:16/km goal pace
+    const result = resolveCurrentThresholdPaceMinPerKm(kpis, goal)
+    expect(result).toBeCloseTo(1000 / (4.0 * 60), 5)
+  })
+
+  it("estimates from a measured easy pace when no threshold workout exists", () => {
+    const kpis = emptyKpis({ thresholdSpeedMps: null, easyPaceAt140Mps: 3.0 })
+    const result = resolveCurrentThresholdPaceMinPerKm(kpis, null)
+    const expectedThresholdSpeedMps = 3.0 / 0.85
+    expect(result).toBeCloseTo(1000 / (expectedThresholdSpeedMps * 60), 5)
+  })
+
+  it("a measured easy-derived estimate is a faster (lower) pace than the easy run itself", () => {
+    const kpis = emptyKpis({ easyPaceAt140Mps: 3.0 })
+    const easyPaceMinPerKm = 1000 / (3.0 * 60)
+    const result = resolveCurrentThresholdPaceMinPerKm(kpis, null)
+    expect(result!).toBeLessThan(easyPaceMinPerKm)
+  })
+
+  it("falls back to the goal's target pace when there is no measured fitness at all", () => {
+    const kpis = emptyKpis()
+    const goal = { goalType: "race", targetPaceMinPerKm: 5.5 }
+    const result = resolveCurrentThresholdPaceMinPerKm(kpis, goal)
+    expect(result).toBe(5.5)
+  })
+
+  it("returns null when there is neither measured fitness nor a goal", () => {
+    expect(resolveCurrentThresholdPaceMinPerKm(null, null)).toBeNull()
+    expect(resolveCurrentThresholdPaceMinPerKm(emptyKpis(), null)).toBeNull()
+  })
+
+  it("returns null when kpis is null and the goal has no derivable pace", () => {
+    expect(resolveCurrentThresholdPaceMinPerKm(null, { goalType: "habit" })).toBeNull()
   })
 })

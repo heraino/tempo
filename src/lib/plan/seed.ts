@@ -15,9 +15,10 @@ import { db } from "@/lib/db"
 import { trainingPlanVersions } from "@/lib/db/schema"
 import { eq, desc } from "drizzle-orm"
 import { generateSchedule } from "./scheduler"
+import { resolveCurrentThresholdPaceMinPerKm } from "./targets"
 import { getActiveGoal } from "@/lib/services/goal.service"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
-import { resolveTargetPaceMinPerKm } from "@/lib/goals/goal"
+import { getKpiSnapshot } from "@/lib/services/kpi.service"
 import type { PlanJson } from "./types"
 
 // ─── Seed PlanJson ────────────────────────────────────────────────────────────
@@ -203,8 +204,11 @@ export async function seedPlanVersion(
     })
     .returning()
 
-  const goal = await getActiveGoal(userId).catch(() => null)
-  const prefs = await getUserPreferences(userId).catch(() => null)
+  const [goal, prefs, kpis] = await Promise.all([
+    getActiveGoal(userId).catch(() => null),
+    getUserPreferences(userId).catch(() => null),
+    getKpiSnapshot(userId).catch(() => null),
+  ])
   await generateSchedule(
     userId,
     version.id,
@@ -213,7 +217,7 @@ export async function seedPlanVersion(
     plan.startWeek,
     plan.startDate,
     daysToGenerate,
-    goal ? resolveTargetPaceMinPerKm(goal) : null,
+    resolveCurrentThresholdPaceMinPerKm(kpis, goal),
     prefs?.maxHr ?? null,
   )
 

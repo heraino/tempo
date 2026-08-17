@@ -3,15 +3,47 @@
  *
  * These are coaching heuristics, not measured physiology: mileage is split
  * across a week's sessions by a fixed relative-weight table, pace is a ratio
- * of the goal's threshold-equivalent pace — mirroring the 0.85 easy:threshold
+ * of a threshold-equivalent reference pace — mirroring the 0.85 easy:threshold
  * ratio already used in readiness.ts — and HR range is a %-of-max-HR band.
  * They only ever fill a gap; an explicit value already on a session template
  * always wins. And they are omitted entirely wherever an input they'd need (a
- * progression block, a goal pace, a max HR) doesn't exist, rather than guessed.
+ * progression block, a reference pace, a max HR) doesn't exist, rather than
+ * guessed.
  */
 
 import type { SessionKind, ProgressionBlock } from "./types"
-import { METERS_PER_MILE } from "@/lib/goals/goal"
+import { METERS_PER_MILE, resolveTargetPaceMinPerKm, type TrainingGoalLike } from "@/lib/goals/goal"
+import type { KpiSnapshot } from "@/lib/analytics/kpis"
+
+/** Ratio of easy-effort speed to threshold speed, mirroring readiness.ts's own EASY_TO_THRESHOLD_RATIO — used here in reverse, to back into an estimated threshold pace from a measured easy pace. */
+const MEASURED_EASY_TO_THRESHOLD_RATIO = 0.85
+
+/**
+ * The threshold-equivalent pace training targets should actually be built
+ * from — the athlete's CURRENT fitness, not their goal. A generated program
+ * exists to progress someone FROM where they are TO their goal; prescribing
+ * goal pace from day one ignores real, already-available evidence of what
+ * they can do today.
+ *
+ * Prefers, in order: a directly measured threshold-effort pace from a recent
+ * logged workout; an estimate derived from a measured easy-effort pace; and
+ * only when neither exists (e.g. a brand-new athlete with no logged running
+ * history at all) falls back to the goal's own target pace as a starting
+ * scaffold, since there is nothing measured to go on yet.
+ */
+export function resolveCurrentThresholdPaceMinPerKm(
+  kpis: KpiSnapshot | null | undefined,
+  goal: TrainingGoalLike | null | undefined,
+): number | null {
+  if (kpis?.thresholdSpeedMps) {
+    return 1000 / (kpis.thresholdSpeedMps * 60)
+  }
+  if (kpis?.easyPaceAt140Mps) {
+    const estimatedThresholdSpeedMps = kpis.easyPaceAt140Mps / MEASURED_EASY_TO_THRESHOLD_RATIO
+    return 1000 / (estimatedThresholdSpeedMps * 60)
+  }
+  return goal ? resolveTargetPaceMinPerKm(goal) : null
+}
 
 /** Relative share of weekly running volume by kind. Long runs and quality sessions carry more of the week's total than easy volume; non-running kinds carry none. */
 const DISTANCE_WEIGHT: Partial<Record<SessionKind, number>> = {
