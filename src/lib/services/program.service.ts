@@ -152,6 +152,13 @@ export async function generateProgram(
 
   let lastError = "The coach could not design a program. Try again."
 
+  // generateProgram now only ever runs inside runProgramGenerationJob's
+  // background job (see program-actions.ts's use of after()) — nothing is
+  // holding a browser request open waiting on this, so it can afford a much
+  // longer timeout than a synchronous call site could. Still comfortably
+  // under the 120s maxDuration declared on every page that triggers this.
+  const GENERATION_TIMEOUT_MS = 100_000
+
   for (let attempt = 0; attempt < 2; attempt++) {
     let raw: string
     try {
@@ -160,7 +167,7 @@ export async function generateProgram(
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        { temperature: attempt === 0 ? 0.3 : 0.5, maxTokens: 2500 },
+        { temperature: attempt === 0 ? 0.3 : 0.5, maxTokens: 2500, timeoutMs: GENERATION_TIMEOUT_MS },
       )
     } catch (err) {
       // Surface the underlying reason (timeout vs. auth vs. upstream error) instead

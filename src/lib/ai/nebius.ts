@@ -5,12 +5,12 @@ const DEFAULT_MODEL = process.env.NEBIUS_MODEL ?? "meta-llama/Llama-3.3-70B-Inst
 // Without a bound, a slow or hung Nebius response leaves fetch waiting
 // indefinitely — which on a serverless platform means the function gets
 // killed by the platform's own execution limit instead of failing in a way
-// the app can catch and show a message for. A caller that throws on this
-// (rather than retrying) only ever makes one call, so this can afford to be
-// generous — a structured multi-hundred-token JSON completion from a large
-// model can legitimately take 30-40s. Callers that DO retry in series (e.g.
-// generateProgram, once, only on a malformed response) still stay safely
-// under any realistic platform ceiling even at 2x this value.
+// the app can catch and show a message for. This default is sized for
+// callers that run as a normal blocking request/response (coach-actions.ts,
+// review-actions.ts) — it must stay safely under whatever maxDuration their
+// page declares. Program generation runs as a decoupled background job
+// (see program.service.ts) and passes its own much longer explicit
+// timeoutMs, since nothing is holding a browser request open waiting on it.
 const DEFAULT_TIMEOUT_MS = 55_000
 
 export async function nebiusChat(
