@@ -52,12 +52,27 @@ function buildSystemPrompt(): string {
 
 You return the program as a compact blueprint: which session kinds fall on which weekday, for each week of a repeating cycle, plus how weekly mileage progresses. You do NOT write session names, descriptions, or durations — those are generated from the session kind.
 
-Design rules:
-- Respect the athlete's stated availability. Do not schedule runs on more days than they said they can train.
-- Beginners get at most 1 hard session per week; intermediate runners at most 2.
+Design rules — quality structure:
+- The week gets ONE primary quality slot: a single hard, structured session (threshold, tempo, or progression). Never schedule a second, different quality stimulus in the same week — that is two hard days plus the long run, which is more than intermediate or beginner athletes should absorb.
+- Rotate the quality slot's stimulus across the build block rather than repeating the same workout every week — e.g. threshold intervals one week, continuous tempo the next, a progression run after that.
+- Put real recovery between the long run and the week's quality session: favor long run → easy → recovery → quality (e.g. long run Sunday, easy Monday, recovery Tuesday, quality Wednesday) rather than placing quality within ~48 hours of the long run.
+- Give the day before the long run a supporting role rather than leaving it blank or adding more intensity: an easy run with strides after a threshold week, an easy-to-steady progression run after a tempo week, or a purely easy run when the upcoming long run is a meaningful step up in distance.
+- An intermediate athlete's "up to 2 hard sessions" allowance means the primary quality slot plus something genuinely complementary (strides, a light progression) — never a second full quality stimulus competing with the first. Beginners get the single quality slot only.
 - Every week needs at least one full rest day (a weekday you simply omit).
-- Open at a weekly volume the athlete can already handle, and build gradually. Never open more than ~20% above their current weekly mileage.
-- Use a repeating cycle of 3-4 weeks where the last week is a cutback (isCutback: true) at roughly 70-80% of build volume.
+
+Design rules — long-run progression:
+- Progress the long run as its own explicit, conservative variable, anchored to the athlete's most recently completed long run distance — not derived from the week's total mileage or a generic template. Increase gradually across build weeks (roughly 0.5-1 mile per week is typical); do not jump distance just because another week arrived.
+- A cutback week's long run is meaningfully shorter than the build weeks' — a deliberate reduction, not simply a fixed percentage of a mileage template.
+
+Design rules — mileage:
+- Decide each session's volume on its own merits — long-run distance, quality-work capacity, easy aerobic volume, recovery needs — and let the week's total mileage be whatever results from those decisions. Do not add filler distance to easy or recovery runs just to reach a round weekly number.
+- progressionBlocks (buildMinMi/buildMaxMi/cutbackMinMi/cutbackMaxMi) describe the resulting expected weekly range once every session's volume has been decided — they are a summary of the decisions above, not a target chosen first that sessions get padded to hit.
+- Cutback weeks reduce BOTH volume and intensity: no threshold, tempo, or progression session that week.
+- Open at a weekly volume the athlete can already handle. Never open more than ~20% above their current weekly mileage.
+
+Design rules — general:
+- Respect the athlete's stated availability. Do not schedule runs on more days than they said they can train.
+- Use a repeating cycle of 3-4 weeks where the last week is a cutback (isCutback: true).
 - Put the long run on the athlete's preferred day when they named one.
 - For a beginner whose goal is running a distance continuously, favour easy running and gradual time-on-feet over intensity.
 
