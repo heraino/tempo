@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { savePreferences } from "@/app/settings/actions"
 import { TimezoneField } from "@/components/TimezoneDetectButton"
 
@@ -12,13 +12,23 @@ interface Props {
 
 export function SettingsForm({ unitsSystem, timezone, maxHr }: Props) {
   const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
   const [isPending, startTransition] = useTransition()
+
+  // Auto-dismiss the success message rather than leaving it up indefinitely.
+  useEffect(() => {
+    if (!saved) return
+    const timer = setTimeout(() => setSaved(false), 3000)
+    return () => clearTimeout(timer)
+  }, [saved])
 
   function handleSubmit(formData: FormData) {
     setError(null)
+    setSaved(false)
     startTransition(async () => {
       const result = await savePreferences(formData)
-      if (!result.ok) setError(result.error ?? "Could not save settings. Try again shortly.")
+      if (result.ok) setSaved(true)
+      else setError(result.error ?? "Could not save settings. Try again shortly.")
     })
   }
 
@@ -98,6 +108,9 @@ export function SettingsForm({ unitsSystem, timezone, maxHr }: Props) {
         {isPending ? "Saving…" : "Save settings"}
       </button>
       {error && <p className="text-sm text-red-600 text-center mt-2">{error}</p>}
+      {saved && !error && (
+        <p className="text-sm text-green-600 text-center mt-2">Settings saved.</p>
+      )}
     </form>
   )
 }
