@@ -104,45 +104,66 @@ export async function upsertUserPreferences(
   userId: string,
   prefs: Partial<UserPrefs>,
 ): Promise<void> {
-  const baseValues = {
+  const coreValues = {
     id: crypto.randomUUID(),
     userId,
     unitsSystem: prefs.unitsSystem ?? "imperial",
     timezone: prefs.timezone ?? null,
+  }
+  const coreSet = {
+    ...(prefs.unitsSystem != null ? { unitsSystem: prefs.unitsSystem } : {}),
+    ...(prefs.timezone !== undefined ? { timezone: prefs.timezone } : {}),
+    updatedAt: new Date(),
+  }
+
+  const modeValues = {
     trainingMode: prefs.trainingMode ?? "goal_program",
     runnerLevel: prefs.runnerLevel ?? null,
     daysPerWeek: prefs.daysPerWeek ?? null,
     longRunDay: prefs.longRunDay ?? null,
   }
-  const baseSet = {
-    ...(prefs.unitsSystem != null ? { unitsSystem: prefs.unitsSystem } : {}),
-    ...(prefs.timezone !== undefined ? { timezone: prefs.timezone } : {}),
+  const modeSet = {
     ...(prefs.trainingMode != null ? { trainingMode: prefs.trainingMode } : {}),
     ...(prefs.runnerLevel !== undefined ? { runnerLevel: prefs.runnerLevel } : {}),
     ...(prefs.daysPerWeek !== undefined ? { daysPerWeek: prefs.daysPerWeek } : {}),
     ...(prefs.longRunDay !== undefined ? { longRunDay: prefs.longRunDay } : {}),
-    updatedAt: new Date(),
   }
+
+  const hrValues = { maxHr: prefs.maxHr ?? null }
+  const hrSet = { ...(prefs.maxHr !== undefined ? { maxHr: prefs.maxHr } : {}) }
+
+  // Try the full write (0009), then progressively drop the newest tier of
+  // columns that might not exist yet, mirroring getUserPreferences' read-side
+  // fallback. A database missing migration 0008 as well as 0009 still saves
+  // whatever it can rather than failing the whole write. The final attempt
+  // is allowed to throw for real — at that point it's not a missing column.
+  try {
+    await db
+      .insert(userPreferences)
+      .values({ ...coreValues, ...modeValues, ...hrValues })
+      .onConflictDoUpdate({
+        target: userPreferences.userId,
+        set: { ...coreSet, ...modeSet, ...hrSet },
+      })
+    return
+  } catch {}
 
   try {
     await db
       .insert(userPreferences)
-      .values({ ...baseValues, maxHr: prefs.maxHr ?? null })
+      .values({ ...coreValues, ...modeValues })
       .onConflictDoUpdate({
         target: userPreferences.userId,
-        set: { ...baseSet, ...(prefs.maxHr !== undefined ? { maxHr: prefs.maxHr } : {}) },
+        set: { ...coreSet, ...modeSet },
       })
-  } catch {
-    // max_hr may not exist yet on databases that have not run migration 0009 —
-    // retry without it so the rest of the save still succeeds rather than
-    // failing the whole preferences write over one missing column. If this
-    // retry also fails, the real error propagates from here instead.
-    await db
-      .insert(userPreferences)
-      .values(baseValues)
-      .onConflictDoUpdate({
-        target: userPreferences.userId,
-        set: baseSet,
-      })
-  }
+    return
+  } catch {}
+
+  await db
+    .insert(userPreferences)
+    .values(coreValues)
+    .onConflictDoUpdate({
+      target: userPreferences.userId,
+      set: coreSet,
+    })
 }

@@ -89,19 +89,28 @@ describe("upsertUserPreferences", () => {
     expect(mockInsert).toHaveBeenCalledTimes(1)
   })
 
-  it("retries without maxHr when the column is missing, so the rest of the save still succeeds", async () => {
-    const valuesCalls: unknown[] = []
+  /** Routes db.insert(...).values(...).onConflictDoUpdate(...) calls to a
+   *  per-attempt outcome list, recording every values() payload along the way. */
+  function mockCascade(outcomes: Array<"fail" | "succeed">, valuesCalls: unknown[]) {
     let call = 0
     mockInsert.mockImplementation(() => ({
       values: vi.fn((v: unknown) => {
         valuesCalls.push(v)
+        const outcome = outcomes[call]
         call++
-        if (call === 1) {
-          return { onConflictDoUpdate: vi.fn(() => { throw new Error('column "max_hr" does not exist') }) }
+        return {
+          onConflictDoUpdate: vi.fn(() => {
+            if (outcome === "fail") throw new Error("column does not exist")
+            return Promise.resolve()
+          }),
         }
-        return { onConflictDoUpdate: vi.fn(() => Promise.resolve()) }
       }),
     }))
+  }
+
+  it("retries without maxHr when only migration 0009 is missing, so the rest of the save still succeeds", async () => {
+    const valuesCalls: unknown[] = []
+    mockCascade(["fail", "succeed"], valuesCalls)
 
     await expect(
       upsertUserPreferences("user-1", { unitsSystem: "metric", maxHr: 190 })
@@ -111,14 +120,28 @@ describe("upsertUserPreferences", () => {
     expect(valuesCalls[0]).toHaveProperty("maxHr", 190)
     expect(valuesCalls[1]).not.toHaveProperty("maxHr")
     expect(valuesCalls[1]).toHaveProperty("unitsSystem", "metric")
+    expect(valuesCalls[1]).toHaveProperty("trainingMode")
   })
 
-  it("propagates the error when the retry also fails", async () => {
-    mockInsert.mockReturnValue({
-      values: vi.fn(() => ({ onConflictDoUpdate: vi.fn(() => { throw new Error("connection reset") }) })),
-    })
+  it("falls back to core columns only when migrations 0008 and 0009 are both missing", async () => {
+    const valuesCalls: unknown[] = []
+    mockCascade(["fail", "fail", "succeed"], valuesCalls)
 
-    await expect(upsertUserPreferences("user-1", { maxHr: 190 })).rejects.toThrow("connection reset")
-    expect(mockInsert).toHaveBeenCalledTimes(2)
+    await expect(
+      upsertUserPreferences("user-1", { unitsSystem: "metric", trainingMode: "just_run", maxHr: 190 })
+    ).resolves.toBeUndefined()
+
+    expect(mockInsert).toHaveBeenCalledTimes(3)
+    expect(valuesCalls[2]).not.toHaveProperty("maxHr")
+    expect(valuesCalls[2]).not.toHaveProperty("trainingMode")
+    expect(valuesCalls[2]).toHaveProperty("unitsSystem", "metric")
+  })
+
+  it("propagates the error when even the core-only write fails", async () => {
+    const valuesCalls: unknown[] = []
+    mockCascade(["fail", "fail", "fail"], valuesCalls)
+
+    await expect(upsertUserPreferences("user-1", { maxHr: 190 })).rejects.toThrow("column does not exist")
+    expect(mockInsert).toHaveBeenCalledTimes(3)
   })
 })
