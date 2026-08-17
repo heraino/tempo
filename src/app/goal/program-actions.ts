@@ -1,15 +1,16 @@
 "use server"
 
 import { auth } from "@/auth"
-import { db } from "@/lib/db"
-import { coachingAnalyses } from "@/lib/db/schema"
+import { after } from "next/server"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import {
-  generateProgram,
   activateProgram,
-  PROGRAM_MODEL,
+  createProgramGenerationJob,
+  runProgramGenerationJob,
+  getProgramGenerationJob,
   type ProgramInputs,
+  type ProgramGenerationStatus,
 } from "@/lib/services/program.service"
 import { getActiveGoal } from "@/lib/services/goal.service"
 import { getAthleteTimezone, getActivePlanVersion } from "@/lib/services/plan.service"
@@ -19,8 +20,6 @@ import { programBlueprintSchema } from "@/lib/validation/blueprint"
 import { blueprintToPlanJson, summarizeBlueprint, checkBlueprintSafety } from "@/lib/plan/blueprint"
 import { validatePlanJson } from "@/lib/validation/plan"
 import type { GeneratedProgram } from "@/lib/services/program.service"
-
-const ANALYTICS_VERSION = "1.0"
 
 const inputsSchema = z.object({
   runnerLevel: z.enum(["beginner", "intermediate"]),
@@ -40,10 +39,21 @@ function nextMonday(dateStr: string): string {
   return d.toISOString().slice(0, 10)
 }
 
-export async function buildProgram(
+/**
+ * Kick off program generation and return immediately with a job id.
+ *
+ * The Nebius call can legitimately take longer than a serverless function's
+ * realistic per-request execution ceiling — especially on Hobby-tier plans —
+ * so this request does not wait on it. after() keeps this invocation alive
+ * just long enough to run the actual generation in the background, but the
+ * HTTP response above has already gone back to the client; the browser isn't
+ * holding a connection open for the whole thing. The client polls
+ * getProgramGenerationStatus for the result.
+ */
+export async function startProgramGeneration(
   rawInputs: unknown,
   feedback?: string | null,
-): Promise<{ ok: boolean; program?: GeneratedProgram; error?: string }> {
+): Promise<{ ok: boolean; jobId?: string; error?: string }> {
   const session = await auth()
   if (!session?.user?.id) return { ok: false, error: "Not signed in" }
   const userId = session.user.id
@@ -53,43 +63,39 @@ export async function buildProgram(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid inputs" }
   }
   const inputs: ProgramInputs = parsed.data
-
   const trimmedFeedback = typeof feedback === "string" ? feedback.trim().slice(0, 1000) : null
 
-  const [goal, tz] = await Promise.all([
-    getActiveGoal(userId).catch(() => null),
-    getAthleteTimezone(userId),
-  ])
-  const todayStr = resolveLocalDate(tz)
+  const jobId = await createProgramGenerationJob(userId, inputs, trimmedFeedback)
 
-  const result = await generateProgram(goal, inputs, todayStr, trimmedFeedback)
-  if (!result.ok) return { ok: false, error: result.error }
-
-  // Persist the generation for traceability, alongside the exact inputs used
-  await db
-    .insert(coachingAnalyses)
-    .values({
-      userId,
-      workoutLogId: null,
-      analysisType: "program_generation",
-      provider: "nebius",
-      model: PROGRAM_MODEL,
-      analyticsVersion: ANALYTICS_VERSION,
-      promptText: JSON.stringify({ inputs, feedback: trimmedFeedback }),
-      contextSnapshot: {
-        inputs,
-        feedback: trimmedFeedback,
-        goal: goal ? { goalType: goal.goalType, targetDate: goal.targetDate } : null,
-      },
-      responseRaw: result.raw,
-      responseParsed: result.program.blueprint,
-      headline: result.program.blueprint.planName.slice(0, 200),
-      decision: result.program.blueprint.summary.slice(0, 500),
-      flags: { warnings: result.program.warnings },
+  after(() =>
+    runProgramGenerationJob(jobId).catch((err) => {
+      console.error(`program generation job ${jobId} failed unexpectedly:`, err)
     })
-    .catch(() => {})
+  )
 
-  return { ok: true, program: result.program }
+  return { ok: true, jobId }
+}
+
+/** Poll a generation job's status. Scoped to the signed-in athlete. */
+export async function getProgramGenerationStatus(jobId: string): Promise<{
+  ok: boolean
+  status?: ProgramGenerationStatus
+  program?: GeneratedProgram
+  error?: string
+}> {
+  const session = await auth()
+  if (!session?.user?.id) return { ok: false, error: "Not signed in" }
+
+  const job = await getProgramGenerationJob(session.user.id, jobId)
+  if (!job) return { ok: false, error: "That generation request could not be found." }
+
+  if (job.status === "error") {
+    return { ok: false, status: "error", error: job.errorMessage ?? "The coach could not design a program." }
+  }
+  if (job.status === "done" && job.result) {
+    return { ok: true, status: "done", program: job.result }
+  }
+  return { ok: true, status: job.status }
 }
 
 /**

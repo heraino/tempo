@@ -414,6 +414,26 @@ export const coachingAnalyses = pgTable("coaching_analysis", {
   createdAt: timestamp("created_at").defaultNow(),
 })
 
+// ─── Program generation jobs ───────────────────────────────────────────────────
+// Program generation is decoupled from the HTTP request that triggers it — a
+// Nebius call can legitimately take longer than a serverless function's
+// realistic execution ceiling, especially on Hobby-tier plans. A row here is
+// created and returned immediately; the actual generation runs in the
+// background (see program.service.ts) and writes its result back to this row.
+// The client polls for completion rather than holding one request open.
+
+export const programGenerationJobs = pgTable("program_generation_job", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"), // pending | running | done | error
+  inputsJson: jsonb("inputs_json").notNull(),
+  feedback: text("feedback"),
+  resultJson: jsonb("result_json"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+})
+
 // ─── User preferences ─────────────────────────────────────────────────────────
 // One row per user. unitsSystem controls distance/temperature display units.
 // timezone overrides the plan-level timezone for resolving "today".

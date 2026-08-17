@@ -7,8 +7,8 @@
  */
 
 import { db } from "@/lib/db"
-import { trainingPlans, trainingPlanVersions } from "@/lib/db/schema"
-import { eq, desc } from "drizzle-orm"
+import { trainingPlans, trainingPlanVersions, programGenerationJobs, coachingAnalyses } from "@/lib/db/schema"
+import { eq, and, desc } from "drizzle-orm"
 import { nebiusChat } from "@/lib/ai/nebius"
 import {
   blueprintToPlanJson,
@@ -26,10 +26,14 @@ import { resolveCurrentThresholdPaceMinPerKm } from "@/lib/plan/targets"
 import { describeGoal, weeksBetween, suggestPlanTitle } from "@/lib/goals/goal"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
 import { getKpiSnapshot } from "@/lib/services/kpi.service"
+import { getActiveGoal } from "@/lib/services/goal.service"
+import { getAthleteTimezone } from "@/lib/services/plan.service"
+import { resolveLocalDate } from "@/lib/plan/localDate"
 import type { TrainingGoal } from "@/lib/services/goal.service"
 import type { PlanJson } from "@/lib/plan/types"
 
 const MODEL_FALLBACK = "meta-llama/Llama-3.3-70B-Instruct"
+const ANALYTICS_VERSION = "1.0"
 
 export interface ProgramInputs {
   runnerLevel: "beginner" | "intermediate"
@@ -197,6 +201,129 @@ export async function generateProgram(
   }
 
   return { ok: false, error: lastError }
+}
+
+// ─── Background generation jobs ────────────────────────────────────────────────
+// A Nebius call for a full program can legitimately take longer than a
+// serverless function's realistic per-request execution ceiling, especially
+// on Hobby-tier plans. Rather than holding one HTTP request open for the
+// whole generation, the athlete's request creates a job row and returns
+// immediately; the actual work runs out-of-band (scheduled via Next.js
+// after(), see program-actions.ts) and writes its result back to this row.
+// The client polls getProgramGenerationJob for completion.
+
+export type ProgramGenerationStatus = "pending" | "running" | "done" | "error"
+
+export interface ProgramGenerationJob {
+  id: string
+  status: ProgramGenerationStatus
+  result: GeneratedProgram | null
+  errorMessage: string | null
+}
+
+/** Create a pending generation job. Returns its id immediately — no Nebius call happens here. */
+export async function createProgramGenerationJob(
+  userId: string,
+  inputs: ProgramInputs,
+  feedback: string | null,
+): Promise<string> {
+  const [job] = await db
+    .insert(programGenerationJobs)
+    .values({
+      userId,
+      status: "pending",
+      inputsJson: inputs,
+      feedback,
+    })
+    .returning()
+  return job.id
+}
+
+/** Fetch a job's status, scoped to the requesting athlete so one athlete can never poll another's job. */
+export async function getProgramGenerationJob(
+  userId: string,
+  jobId: string,
+): Promise<ProgramGenerationJob | null> {
+  const rows = await db
+    .select()
+    .from(programGenerationJobs)
+    .where(and(eq(programGenerationJobs.id, jobId), eq(programGenerationJobs.userId, userId)))
+    .limit(1)
+  const row = rows[0]
+  if (!row) return null
+  return {
+    id: row.id,
+    status: row.status as ProgramGenerationStatus,
+    result: (row.resultJson as GeneratedProgram | null) ?? null,
+    errorMessage: row.errorMessage,
+  }
+}
+
+/**
+ * Run a previously created generation job to completion, writing its result
+ * back to the job row. Intended to be scheduled via after() so it runs after
+ * the HTTP response that created the job has already gone back to the
+ * client — nothing is left waiting on it.
+ */
+export async function runProgramGenerationJob(jobId: string): Promise<void> {
+  const rows = await db
+    .select()
+    .from(programGenerationJobs)
+    .where(eq(programGenerationJobs.id, jobId))
+    .limit(1)
+  const job = rows[0]
+  if (!job) return
+
+  await db
+    .update(programGenerationJobs)
+    .set({ status: "running", updatedAt: new Date() })
+    .where(eq(programGenerationJobs.id, jobId))
+
+  const inputs = job.inputsJson as ProgramInputs
+  const [goal, tz] = await Promise.all([
+    getActiveGoal(job.userId).catch(() => null),
+    getAthleteTimezone(job.userId),
+  ])
+  const todayStr = resolveLocalDate(tz)
+
+  const result = await generateProgram(goal, inputs, todayStr, job.feedback)
+
+  if (!result.ok) {
+    await db
+      .update(programGenerationJobs)
+      .set({ status: "error", errorMessage: result.error, updatedAt: new Date() })
+      .where(eq(programGenerationJobs.id, jobId))
+    return
+  }
+
+  await db
+    .update(programGenerationJobs)
+    .set({ status: "done", resultJson: result.program, updatedAt: new Date() })
+    .where(eq(programGenerationJobs.id, jobId))
+
+  // Persist the generation for traceability, alongside the exact inputs used
+  await db
+    .insert(coachingAnalyses)
+    .values({
+      userId: job.userId,
+      workoutLogId: null,
+      analysisType: "program_generation",
+      provider: "nebius",
+      model: PROGRAM_MODEL,
+      analyticsVersion: ANALYTICS_VERSION,
+      promptText: JSON.stringify({ inputs, feedback: job.feedback }),
+      contextSnapshot: {
+        inputs,
+        feedback: job.feedback,
+        goal: goal ? { goalType: goal.goalType, targetDate: goal.targetDate } : null,
+      },
+      responseRaw: result.raw,
+      responseParsed: result.program.blueprint,
+      headline: result.program.blueprint.planName.slice(0, 200),
+      decision: result.program.blueprint.summary.slice(0, 500),
+      flags: { warnings: result.program.warnings },
+    })
+    .catch(() => {})
 }
 
 /**

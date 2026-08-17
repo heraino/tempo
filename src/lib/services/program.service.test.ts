@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { trainingPlanVersions } from "@/lib/db/schema"
+import { trainingPlanVersions, programGenerationJobs, coachingAnalyses } from "@/lib/db/schema"
 import type { ProgramBlueprint } from "@/lib/plan/blueprint"
 import type { PlanJson } from "@/lib/plan/types"
 
@@ -11,6 +11,18 @@ const generateScheduleMock = vi.fn().mockResolvedValue(undefined)
 vi.mock("@/lib/plan/scheduler", () => ({
   generateSchedule: generateScheduleMock,
 }))
+
+// runProgramGenerationJob's own logic (status transitions, result/error
+// persistence) is what's under test here — the actual Nebius call and the
+// athlete's goal/timezone lookups are separate, already-exercised concerns.
+const nebiusChatMock = vi.fn()
+vi.mock("@/lib/ai/nebius", () => ({ nebiusChat: nebiusChatMock }))
+
+const getActiveGoalMock = vi.fn().mockResolvedValue(null)
+vi.mock("@/lib/services/goal.service", () => ({ getActiveGoal: getActiveGoalMock }))
+
+const getAthleteTimezoneMock = vi.fn().mockResolvedValue("UTC")
+vi.mock("@/lib/services/plan.service", () => ({ getAthleteTimezone: getAthleteTimezoneMock }))
 
 const tableRows = new Map<unknown, unknown[]>()
 function setRows(table: unknown, rows: unknown[]) {
@@ -38,6 +50,9 @@ function createChain(rows: unknown[], table: unknown, kind: "select" | "insert" 
   chain.returning = vi.fn(() => Promise.resolve(rows))
   chain.then = (resolve: (v: unknown[]) => void, reject?: (e: unknown) => void) =>
     Promise.resolve(rows).then(resolve, reject)
+  // Some call sites chain .catch() directly on the query builder without
+  // awaiting first (e.g. a best-effort insert that shouldn't fail the caller).
+  chain.catch = (onRejected: (e: unknown) => void) => Promise.resolve(rows).then(undefined, onRejected)
   return chain
 }
 
@@ -56,7 +71,12 @@ vi.mock("@/lib/db", () => ({
   db: { select: mockSelect, insert: mockInsert, update: mockUpdate, delete: mockDelete },
 }))
 
-const { activateProgram } = await import("./program.service")
+const {
+  activateProgram,
+  createProgramGenerationJob,
+  getProgramGenerationJob,
+  runProgramGenerationJob,
+} = await import("./program.service")
 
 const USER_ID = "user-1"
 
@@ -136,5 +156,100 @@ describe("activateProgram", () => {
     expect(generateScheduleMock).toHaveBeenCalledTimes(1)
     expect(generateScheduleMock.mock.calls[0][1]).toBe(result.planVersionId)
     expect(generateScheduleMock.mock.calls[0][1]).not.toBe("old-version")
+  })
+})
+
+const INPUTS = {
+  runnerLevel: "intermediate" as const,
+  daysPerWeek: 5,
+  longRunDay: "Sunday",
+  currentWeeklyMi: 24,
+  longestRecentRunMi: 9.5,
+}
+
+const VALID_BLUEPRINT_RESPONSE = JSON.stringify({
+  planName: "Test Plan",
+  summary: "A test program.",
+  cycleWeeks: [
+    { id: "a", label: "A", isCutback: false, days: [{ weekday: "Monday", sessionKinds: ["easy"] }] },
+  ],
+  progressionBlocks: [
+    { blockNumber: 1, buildMinMi: 10, buildMaxMi: 12, cutbackMinMi: 8, cutbackMaxMi: 9 },
+  ],
+  notes: ["Note 1"],
+})
+
+describe("createProgramGenerationJob", () => {
+  it("inserts a pending job with the given inputs and feedback, without calling Nebius", async () => {
+    setRows(programGenerationJobs, [])
+
+    const jobId = await createProgramGenerationJob(USER_ID, INPUTS, "make it easier")
+
+    expect(jobId).toBeTruthy()
+    const jobInsert = insertCalls.find((c) => c.table === programGenerationJobs)
+    expect(jobInsert?.values).toMatchObject({
+      userId: USER_ID,
+      status: "pending",
+      inputsJson: INPUTS,
+      feedback: "make it easier",
+    })
+    expect(nebiusChatMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("getProgramGenerationJob", () => {
+  it("returns null when no matching job exists", async () => {
+    setRows(programGenerationJobs, [])
+    const job = await getProgramGenerationJob(USER_ID, "missing-job")
+    expect(job).toBeNull()
+  })
+
+  it("maps a done job's row to its result", async () => {
+    setRows(programGenerationJobs, [{
+      id: "job-1", status: "done", resultJson: { blueprint: { planName: "X" } }, errorMessage: null,
+    }])
+    const job = await getProgramGenerationJob(USER_ID, "job-1")
+    expect(job).toEqual({
+      id: "job-1", status: "done",
+      result: { blueprint: { planName: "X" } }, errorMessage: null,
+    })
+  })
+})
+
+describe("runProgramGenerationJob", () => {
+  it("does nothing if the job no longer exists", async () => {
+    setRows(programGenerationJobs, [])
+    await runProgramGenerationJob("missing-job")
+    expect(updateCalls.filter((c) => c.table === programGenerationJobs)).toHaveLength(0)
+  })
+
+  it("marks the job running, then done with the generated program, on success", async () => {
+    setRows(programGenerationJobs, [{ id: "job-1", userId: USER_ID, inputsJson: INPUTS, feedback: null }])
+    nebiusChatMock.mockResolvedValue(VALID_BLUEPRINT_RESPONSE)
+
+    await runProgramGenerationJob("job-1")
+
+    const jobUpdates = updateCalls.filter((c) => c.table === programGenerationJobs)
+    expect(jobUpdates[0].set).toMatchObject({ status: "running" })
+    expect(jobUpdates[1].set).toMatchObject({ status: "done" })
+    expect((jobUpdates[1].set as { resultJson: { blueprint: { planName: string } } }).resultJson.blueprint.planName)
+      .toBe("Test Plan")
+
+    const analysisInsert = insertCalls.find((c) => c.table === coachingAnalyses)
+    expect(analysisInsert).toBeDefined()
+  })
+
+  it("marks the job errored, with the underlying reason, when Nebius fails", async () => {
+    setRows(programGenerationJobs, [{ id: "job-1", userId: USER_ID, inputsJson: INPUTS, feedback: null }])
+    nebiusChatMock.mockRejectedValue(new Error("Nebius request timed out after 55000ms"))
+
+    await runProgramGenerationJob("job-1")
+
+    const jobUpdates = updateCalls.filter((c) => c.table === programGenerationJobs)
+    expect(jobUpdates[0].set).toMatchObject({ status: "running" })
+    expect(jobUpdates[1].set).toMatchObject({ status: "error" })
+    expect((jobUpdates[1].set as { errorMessage: string }).errorMessage).toContain("timed out after 55000ms")
+
+    expect(insertCalls.find((c) => c.table === coachingAnalyses)).toBeUndefined()
   })
 })

@@ -2,8 +2,15 @@
 
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { buildProgram, startProgram, saveProgramInputs } from "../program-actions"
+import { startProgramGeneration, getProgramGenerationStatus, startProgram, saveProgramInputs } from "../program-actions"
 import type { GeneratedProgram } from "@/lib/services/program.service"
+
+const POLL_INTERVAL_MS = 3000
+const MAX_POLL_ATTEMPTS = 60 // ~3 minutes
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 const WEEKDAYS = [
   "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
@@ -79,15 +86,29 @@ export function ProgramBuilder({ units, defaults, hasGoal, hasExistingPlan }: Pr
     startTransition(async () => {
       const inputs = currentInputs()
       try {
-        const result = await buildProgram(inputs, withFeedback ?? null)
-        if (result.ok && result.program) {
-          setProgram(result.program)
-          setShowFeedback(false)
-          setFeedback("")
-          void saveProgramInputs(inputs)
-        } else {
-          setError(result.error ?? "Could not build a program")
+        const started = await startProgramGeneration(inputs, withFeedback ?? null)
+        if (!started.ok || !started.jobId) {
+          setError(started.error ?? "Could not build a program")
+          return
         }
+        void saveProgramInputs(inputs)
+
+        for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+          await sleep(POLL_INTERVAL_MS)
+          const status = await getProgramGenerationStatus(started.jobId)
+          if (status.status === "done" && status.program) {
+            setProgram(status.program)
+            setShowFeedback(false)
+            setFeedback("")
+            return
+          }
+          if (!status.ok) {
+            setError(status.error ?? "Could not build a program")
+            return
+          }
+          // pending / running — keep polling
+        }
+        setError("This is taking longer than expected. Check back in a minute, or try again.")
       } catch {
         setError("The coach is taking too long to respond. Try again in a moment.")
       }
