@@ -38,13 +38,16 @@ export function fmtDuration(secs: number | null | undefined): string {
     : `${m}:${s.toString().padStart(2, "0")}`
 }
 
-export function fmtDate(d: Date): string {
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+// timeZone is required, not defaulted — leaving it off silently falls back to
+// the server's own timezone (UTC on Vercel), which can shift a real workout
+// timestamp to the wrong calendar day for any athlete west of UTC.
+export function fmtDate(d: Date, timeZone: string): string {
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone })
 }
 
-export function fmtDateLong(d: Date): string {
+export function fmtDateLong(d: Date, timeZone: string): string {
   return d.toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric", year: "numeric",
+    weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone,
   })
 }
 

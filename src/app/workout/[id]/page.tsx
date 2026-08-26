@@ -267,7 +267,7 @@ export default async function WorkoutDetailPage({
             {fmtDistance(log.totalDistanceM)}
           </h1>
           <div className="flex items-center gap-2 mt-1.5">
-            <p className="text-sm text-gray-400">{fmtDateLong(startDate)}</p>
+            <p className="text-sm text-gray-400">{fmtDateLong(startDate, prefs.timezone ?? "UTC")}</p>
             <SessionKindPicker
               workoutId={log.id}
               override={log.sessionKindOverride ?? null}

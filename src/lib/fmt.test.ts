@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { fmtPace, fmtDistance, fmtDuration, fmtTemp, fmtNum } from "./fmt"
+import { fmtPace, fmtDistance, fmtDuration, fmtTemp, fmtNum, fmtDate, fmtDateLong } from "./fmt"
 
 describe("fmtPace", () => {
   it("returns — for null", () => {
@@ -111,5 +111,25 @@ describe("fmtNum", () => {
 
   it("appends unit when provided", () => {
     expect(fmtNum(75, 1, "bpm")).toBe("75.0 bpm")
+  })
+})
+
+// A late-evening Pacific-time run rolls into the next calendar day in UTC —
+// exactly the bug these two functions used to have (no timeZone at all,
+// silently defaulting to the server's own timezone). 8pm PDT on Aug 19 is
+// already Aug 20 in UTC.
+const LATE_PACIFIC_EVENING_RUN = new Date("2026-08-20T03:00:00.000Z")
+
+describe("fmtDate", () => {
+  it("resolves the calendar date in the given timezone, not UTC", () => {
+    expect(fmtDate(LATE_PACIFIC_EVENING_RUN, "America/Los_Angeles")).toContain("19")
+    expect(fmtDate(LATE_PACIFIC_EVENING_RUN, "UTC")).toContain("20")
+  })
+})
+
+describe("fmtDateLong", () => {
+  it("resolves the calendar date in the given timezone, not UTC", () => {
+    expect(fmtDateLong(LATE_PACIFIC_EVENING_RUN, "America/Los_Angeles")).toContain("August 19")
+    expect(fmtDateLong(LATE_PACIFIC_EVENING_RUN, "UTC")).toContain("August 20")
   })
 })

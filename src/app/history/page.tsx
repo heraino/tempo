@@ -4,7 +4,7 @@ import Link from "next/link"
 import { db } from "@/lib/db"
 import { workoutLogs } from "@/lib/db/schema"
 import { eq, desc, asc, and, or, isNull, gte } from "drizzle-orm"
-import { fmtPace, fmtDistance, fmtDuration, fmtDate, resolveSpeedMps } from "@/lib/fmt"
+import { fmtPace, fmtDistance, fmtDuration, resolveSpeedMps } from "@/lib/fmt"
 import { MileageChart } from "@/components/MileageChart"
 import { isRunningSport } from "@/lib/analytics/classify"
 import { getUserPreferences } from "@/lib/services/userPreferences.service"
@@ -247,6 +247,9 @@ export default async function HistoryPage({
               const kindLabel = resolvedKind ? (KIND_LABELS[resolvedKind] ?? resolvedKind) : null
               const kindColor = resolvedKind ? (KIND_COLORS[resolvedKind] ?? KIND_COLORS.other) : KIND_COLORS.other
               const speedMps = resolveSpeedMps(w.avgSpeedMps, w.totalDistanceM, w.totalTimerSecs)
+              // The athlete's local calendar date, not UTC — a late-evening run
+              // in a timezone behind UTC can otherwise land on the wrong day.
+              const localDate = localParts(new Date(w.startTime))
               const rawSport = w.sport ?? ""
               const rawSub = w.subSport ?? ""
               const isGeneric = rawSport === "running" && (!rawSub || rawSub === "generic" || rawSub === rawSport)
@@ -265,13 +268,13 @@ export default async function HistoryPage({
                   {/* Date */}
                   <div className="w-10 shrink-0 text-center">
                     <p className="text-[10px] font-semibold uppercase text-gray-400 leading-none">
-                      {new Date(w.startTime).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}
+                      {new Date(w.startTime).toLocaleDateString("en-US", { weekday: "short", timeZone: tz })}
                     </p>
                     <p className="text-lg font-bold text-gray-800 leading-tight mt-0.5">
-                      {new Date(w.startTime).getUTCDate()}
+                      {localDate.day}
                     </p>
                     <p className="text-[9px] text-gray-400 leading-none">
-                      {new Date(w.startTime).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}
+                      {new Date(w.startTime).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: tz })}
                     </p>
                   </div>
 

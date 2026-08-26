@@ -35,7 +35,7 @@ function sessionLabel(log: WorkoutRow): string {
   return sport.charAt(0).toUpperCase() + sport.slice(1)
 }
 
-export function RecentWorkoutsCard({ logs }: { logs: WorkoutRow[] }) {
+export function RecentWorkoutsCard({ logs, timezone }: { logs: WorkoutRow[]; timezone: string }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -115,7 +115,7 @@ export function RecentWorkoutsCard({ logs }: { logs: WorkoutRow[] }) {
                     )}
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {fmtDate(new Date(log.startTime))}
+                    {fmtDate(new Date(log.startTime), timezone)}
                   </p>
                   <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
                     <span className="font-semibold text-gray-800">{fmtDistance(log.totalDistanceM)}</span>

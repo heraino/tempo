@@ -311,7 +311,7 @@ export default async function DashboardPage() {
     })
     .slice(-15)
     .map((w) => ({
-      date: new Date(w.startTime!).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+      date: new Date(w.startTime!).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz }),
       paceDecimal: Math.round((1609.344 / w.avgSpeedMps! / 60) * 100) / 100,
     }))
 
@@ -323,7 +323,7 @@ export default async function DashboardPage() {
       const p = s.responseParsed as Record<string, unknown> | null
       if (!p || typeof p.total !== "number" || !s.createdAt) return []
       return [{
-        date: new Date(s.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+        date: new Date(s.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz }),
         score: p.total,
       }]
     })
@@ -805,7 +805,7 @@ export default async function DashboardPage() {
   const recentWorkoutsSection = (
     <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
       <h2 className="text-lg font-bold text-gray-900 mb-4">Recent workouts</h2>
-      <RecentWorkoutsCard logs={recentLogs} />
+      <RecentWorkoutsCard logs={recentLogs} timezone={tz} />
     </section>
   )
 
