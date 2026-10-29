@@ -22,6 +22,62 @@
       "when": 1784181600000,
       "tag": "0002_add_training_plan_timezone",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793250950902,
+      "tag": "0003_session_kind_override",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793250951902,
+      "tag": "0004_user_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793250952902,
+      "tag": "0005_daily_wellness",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793250953902,
+      "tag": "0006_import_chunks",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793250954902,
+      "tag": "0007_training_goals_and_plan_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793250955902,
+      "tag": "0008_training_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793250956902,
+      "tag": "0009_athlete_max_hr",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793250957902,
+      "tag": "0010_program_generation_jobs",
+      "breakpoints": true
     }
   ]
 }

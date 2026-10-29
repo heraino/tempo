@@ -1,1 +1,1 @@
-ALTER TABLE "training_plan" ADD COLUMN "timezone" text DEFAULT 'UTC' NOT NULL;
+ALTER TABLE "training_plan" ADD COLUMN IF NOT EXISTS "timezone" text DEFAULT 'UTC' NOT NULL;

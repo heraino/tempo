@@ -1,4 +1,4 @@
-CREATE TABLE "account" (
+CREATE TABLE IF NOT EXISTS "account" (
 	"userId" text NOT NULL,
 	"type" text NOT NULL,
 	"provider" text NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE "account" (
 	CONSTRAINT "account_provider_providerAccountId_pk" PRIMARY KEY("provider","providerAccountId")
 );
 --> statement-breakpoint
-CREATE TABLE "athlete_context" (
+CREATE TABLE IF NOT EXISTS "athlete_context" (
 	"id" text PRIMARY KEY NOT NULL,
 	"workout_log_id" text NOT NULL,
 	"user_id" text NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE "athlete_context" (
 	CONSTRAINT "athlete_context_workout_log_id_unique" UNIQUE("workout_log_id")
 );
 --> statement-breakpoint
-CREATE TABLE "coaching_analysis" (
+CREATE TABLE IF NOT EXISTS "coaching_analysis" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"workout_log_id" text,
@@ -51,7 +51,7 @@ CREATE TABLE "coaching_analysis" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "fit_file" (
+CREATE TABLE IF NOT EXISTS "fit_file" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"sha256" text NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE "fit_file" (
 	CONSTRAINT "fit_file_user_id_sha256_unique" UNIQUE("user_id","sha256")
 );
 --> statement-breakpoint
-CREATE TABLE "job" (
+CREATE TABLE IF NOT EXISTS "job" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text,
 	"type" text NOT NULL,
@@ -75,7 +75,7 @@ CREATE TABLE "job" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "pain_flag" (
+CREATE TABLE IF NOT EXISTS "pain_flag" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"location" text NOT NULL,
@@ -88,7 +88,7 @@ CREATE TABLE "pain_flag" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "pain_observation" (
+CREATE TABLE IF NOT EXISTS "pain_observation" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"workout_log_id" text,
@@ -105,7 +105,7 @@ CREATE TABLE "pain_observation" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "planned_session" (
+CREATE TABLE IF NOT EXISTS "planned_session" (
 	"id" text PRIMARY KEY NOT NULL,
 	"planned_day_id" text NOT NULL,
 	"user_id" text NOT NULL,
@@ -132,7 +132,7 @@ CREATE TABLE "planned_session" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "planned_workout_day" (
+CREATE TABLE IF NOT EXISTS "planned_workout_day" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"plan_version_id" text NOT NULL,
@@ -144,7 +144,7 @@ CREATE TABLE "planned_workout_day" (
 	CONSTRAINT "planned_workout_day_user_id_scheduled_date_plan_version_id_unique" UNIQUE("user_id","scheduled_date","plan_version_id")
 );
 --> statement-breakpoint
-CREATE TABLE "session_completion" (
+CREATE TABLE IF NOT EXISTS "session_completion" (
 	"id" text PRIMARY KEY NOT NULL,
 	"planned_session_id" text NOT NULL,
 	"user_id" text NOT NULL,
@@ -155,13 +155,13 @@ CREATE TABLE "session_completion" (
 	CONSTRAINT "session_completion_planned_session_id_unique" UNIQUE("planned_session_id")
 );
 --> statement-breakpoint
-CREATE TABLE "session" (
+CREATE TABLE IF NOT EXISTS "session" (
 	"sessionToken" text PRIMARY KEY NOT NULL,
 	"userId" text NOT NULL,
 	"expires" timestamp NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "training_plan_version" (
+CREATE TABLE IF NOT EXISTS "training_plan_version" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"version_number" integer NOT NULL,
@@ -176,7 +176,7 @@ CREATE TABLE "training_plan_version" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "training_plan" (
+CREATE TABLE IF NOT EXISTS "training_plan" (
 	"id" text PRIMARY KEY NOT NULL,
 	"userId" text NOT NULL,
 	"title" text,
@@ -186,7 +186,7 @@ CREATE TABLE "training_plan" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "training_state" (
+CREATE TABLE IF NOT EXISTS "training_state" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
 	"active_plan_version_id" text,
@@ -204,7 +204,7 @@ CREATE TABLE "training_state" (
 	CONSTRAINT "training_state_user_id_unique" UNIQUE("user_id")
 );
 --> statement-breakpoint
-CREATE TABLE "user" (
+CREATE TABLE IF NOT EXISTS "user" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text,
 	"email" text,
@@ -213,14 +213,14 @@ CREATE TABLE "user" (
 	CONSTRAINT "user_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
-CREATE TABLE "verificationToken" (
+CREATE TABLE IF NOT EXISTS "verificationToken" (
 	"identifier" text NOT NULL,
 	"token" text NOT NULL,
 	"expires" timestamp NOT NULL,
 	CONSTRAINT "verificationToken_identifier_token_pk" PRIMARY KEY("identifier","token")
 );
 --> statement-breakpoint
-CREATE TABLE "workout_log" (
+CREATE TABLE IF NOT EXISTS "workout_log" (
 	"id" text PRIMARY KEY NOT NULL,
 	"userId" text NOT NULL,
 	"fit_file_name" text,
@@ -281,30 +281,138 @@ CREATE TABLE "workout_log" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-ALTER TABLE "account" ADD CONSTRAINT "account_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "athlete_context" ADD CONSTRAINT "athlete_context_workout_log_id_workout_log_id_fk" FOREIGN KEY ("workout_log_id") REFERENCES "public"."workout_log"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "athlete_context" ADD CONSTRAINT "athlete_context_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "coaching_analysis" ADD CONSTRAINT "coaching_analysis_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "coaching_analysis" ADD CONSTRAINT "coaching_analysis_workout_log_id_workout_log_id_fk" FOREIGN KEY ("workout_log_id") REFERENCES "public"."workout_log"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "fit_file" ADD CONSTRAINT "fit_file_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "job" ADD CONSTRAINT "job_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "pain_flag" ADD CONSTRAINT "pain_flag_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "pain_observation" ADD CONSTRAINT "pain_observation_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "pain_observation" ADD CONSTRAINT "pain_observation_workout_log_id_workout_log_id_fk" FOREIGN KEY ("workout_log_id") REFERENCES "public"."workout_log"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "planned_session" ADD CONSTRAINT "planned_session_planned_day_id_planned_workout_day_id_fk" FOREIGN KEY ("planned_day_id") REFERENCES "public"."planned_workout_day"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "planned_session" ADD CONSTRAINT "planned_session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "planned_session" ADD CONSTRAINT "planned_session_plan_version_id_training_plan_version_id_fk" FOREIGN KEY ("plan_version_id") REFERENCES "public"."training_plan_version"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "planned_session" ADD CONSTRAINT "planned_session_rescheduled_from_id_planned_session_id_fk" FOREIGN KEY ("rescheduled_from_id") REFERENCES "public"."planned_session"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "planned_workout_day" ADD CONSTRAINT "planned_workout_day_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "planned_workout_day" ADD CONSTRAINT "planned_workout_day_plan_version_id_training_plan_version_id_fk" FOREIGN KEY ("plan_version_id") REFERENCES "public"."training_plan_version"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "session_completion" ADD CONSTRAINT "session_completion_planned_session_id_planned_session_id_fk" FOREIGN KEY ("planned_session_id") REFERENCES "public"."planned_session"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "session_completion" ADD CONSTRAINT "session_completion_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "session_completion" ADD CONSTRAINT "session_completion_workout_log_id_workout_log_id_fk" FOREIGN KEY ("workout_log_id") REFERENCES "public"."workout_log"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "session" ADD CONSTRAINT "session_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "training_plan_version" ADD CONSTRAINT "training_plan_version_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "training_plan_version" ADD CONSTRAINT "training_plan_version_prior_version_id_training_plan_version_id_fk" FOREIGN KEY ("prior_version_id") REFERENCES "public"."training_plan_version"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "training_plan" ADD CONSTRAINT "training_plan_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "training_state" ADD CONSTRAINT "training_state_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "training_state" ADD CONSTRAINT "training_state_active_plan_version_id_training_plan_version_id_fk" FOREIGN KEY ("active_plan_version_id") REFERENCES "public"."training_plan_version"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "workout_log" ADD CONSTRAINT "workout_log_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "workout_log" ADD CONSTRAINT "workout_log_fit_file_id_fit_file_id_fk" FOREIGN KEY ("fit_file_id") REFERENCES "public"."fit_file"("id") ON DELETE set null ON UPDATE no action;
+DO $$ BEGIN
+ ALTER TABLE "account" ADD CONSTRAINT "account_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "athlete_context" ADD CONSTRAINT "athlete_context_workout_log_id_workout_log_id_fk" FOREIGN KEY ("workout_log_id") REFERENCES "public"."workout_log"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "athlete_context" ADD CONSTRAINT "athlete_context_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "coaching_analysis" ADD CONSTRAINT "coaching_analysis_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "coaching_analysis" ADD CONSTRAINT "coaching_analysis_workout_log_id_workout_log_id_fk" FOREIGN KEY ("workout_log_id") REFERENCES "public"."workout_log"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "fit_file" ADD CONSTRAINT "fit_file_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "job" ADD CONSTRAINT "job_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "pain_flag" ADD CONSTRAINT "pain_flag_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "pain_observation" ADD CONSTRAINT "pain_observation_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "pain_observation" ADD CONSTRAINT "pain_observation_workout_log_id_workout_log_id_fk" FOREIGN KEY ("workout_log_id") REFERENCES "public"."workout_log"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "planned_session" ADD CONSTRAINT "planned_session_planned_day_id_planned_workout_day_id_fk" FOREIGN KEY ("planned_day_id") REFERENCES "public"."planned_workout_day"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "planned_session" ADD CONSTRAINT "planned_session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "planned_session" ADD CONSTRAINT "planned_session_plan_version_id_training_plan_version_id_fk" FOREIGN KEY ("plan_version_id") REFERENCES "public"."training_plan_version"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "planned_session" ADD CONSTRAINT "planned_session_rescheduled_from_id_planned_session_id_fk" FOREIGN KEY ("rescheduled_from_id") REFERENCES "public"."planned_session"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "planned_workout_day" ADD CONSTRAINT "planned_workout_day_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "planned_workout_day" ADD CONSTRAINT "planned_workout_day_plan_version_id_training_plan_version_id_fk" FOREIGN KEY ("plan_version_id") REFERENCES "public"."training_plan_version"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "session_completion" ADD CONSTRAINT "session_completion_planned_session_id_planned_session_id_fk" FOREIGN KEY ("planned_session_id") REFERENCES "public"."planned_session"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "session_completion" ADD CONSTRAINT "session_completion_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "session_completion" ADD CONSTRAINT "session_completion_workout_log_id_workout_log_id_fk" FOREIGN KEY ("workout_log_id") REFERENCES "public"."workout_log"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "session" ADD CONSTRAINT "session_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "training_plan_version" ADD CONSTRAINT "training_plan_version_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "training_plan_version" ADD CONSTRAINT "training_plan_version_prior_version_id_training_plan_version_id_fk" FOREIGN KEY ("prior_version_id") REFERENCES "public"."training_plan_version"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "training_plan" ADD CONSTRAINT "training_plan_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "training_state" ADD CONSTRAINT "training_state_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "training_state" ADD CONSTRAINT "training_state_active_plan_version_id_training_plan_version_id_fk" FOREIGN KEY ("active_plan_version_id") REFERENCES "public"."training_plan_version"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "workout_log" ADD CONSTRAINT "workout_log_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "workout_log" ADD CONSTRAINT "workout_log_fit_file_id_fit_file_id_fk" FOREIGN KEY ("fit_file_id") REFERENCES "public"."fit_file"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;

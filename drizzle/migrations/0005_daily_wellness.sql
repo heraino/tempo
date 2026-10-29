@@ -33,7 +33,12 @@ CREATE TABLE IF NOT EXISTS "daily_wellness" (
   "updated_at" timestamp DEFAULT now(),
   CONSTRAINT "daily_wellness_user_id_calendar_date_unique" UNIQUE("user_id", "calendar_date")
 );
+--> statement-breakpoint
 
-ALTER TABLE "daily_wellness"
-  ADD CONSTRAINT "daily_wellness_user_id_user_id_fk"
-  FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "daily_wellness"
+    ADD CONSTRAINT "daily_wellness_user_id_user_id_fk"
+    FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

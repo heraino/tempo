@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS "training_goal" (
     "created_at" timestamp DEFAULT now(),
     "updated_at" timestamp DEFAULT now()
 );
+--> statement-breakpoint
 
 DO $$ BEGIN
     ALTER TABLE "training_goal"
@@ -25,9 +26,11 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "training_goal_user_status_idx"
     ON "training_goal" ("user_id", "status");
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "plan_change_proposal" (
     "id" text PRIMARY KEY NOT NULL,
@@ -44,6 +47,7 @@ CREATE TABLE IF NOT EXISTS "plan_change_proposal" (
     "decided_at" timestamp,
     "created_at" timestamp DEFAULT now()
 );
+--> statement-breakpoint
 
 DO $$ BEGIN
     ALTER TABLE "plan_change_proposal"
@@ -53,6 +57,7 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
 
 DO $$ BEGIN
     ALTER TABLE "plan_change_proposal"
@@ -62,6 +67,7 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
 
 DO $$ BEGIN
     ALTER TABLE "plan_change_proposal"
@@ -71,6 +77,7 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "plan_change_proposal_user_status_idx"
     ON "plan_change_proposal" ("user_id", "status");
