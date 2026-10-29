@@ -1,7 +1,12 @@
 "use server"
 
 import { auth } from "@/auth"
-import { getUserPreferences, upsertUserPreferences, type UnitsSystem } from "@/lib/services/userPreferences.service"
+import {
+  getUserPreferences,
+  upsertUserPreferences,
+  prefsWriteErrorMessage,
+  type UnitsSystem,
+} from "@/lib/services/userPreferences.service"
 import { revalidatePath } from "next/cache"
 
 /**
@@ -41,12 +46,8 @@ export async function savePreferences(formData: FormData): Promise<{ ok: boolean
       ...(timezone ? { timezone } : {}),
       maxHr,
     })
-  } catch {
-    // A form action's return value is only visible to a client caller — the
-    // plain <form action={...}> wrapper this feeds today discards it, so this
-    // still surfaces as "nothing happened" rather than a message. That's
-    // still a large improvement over an uncaught exception crashing the page.
-    return { ok: false, error: "Could not save settings. Try again shortly." }
+  } catch (err) {
+    return { ok: false, error: prefsWriteErrorMessage(err) }
   }
 
   revalidatePath("/dashboard")

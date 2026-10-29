@@ -2,7 +2,7 @@
 
 import { auth, signOut } from "@/auth"
 import { z } from "zod"
-import { upsertUserPreferences } from "@/lib/services/userPreferences.service"
+import { upsertUserPreferences, prefsWriteErrorMessage } from "@/lib/services/userPreferences.service"
 
 export async function signOutAction() {
   await signOut({ redirectTo: "/" })
@@ -46,11 +46,17 @@ export async function completeJustRunOnboarding(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
   }
 
-  await upsertUserPreferences(session.user.id, {
-    trainingMode: "just_run",
-    runnerLevel: parsed.data.runnerLevel,
-    daysPerWeek: parsed.data.daysPerWeek,
-  })
+  // If this write fails, the dashboard would see no plan and no just_run mode
+  // and send the athlete straight back here — so report it, never ok.
+  try {
+    await upsertUserPreferences(session.user.id, {
+      trainingMode: "just_run",
+      runnerLevel: parsed.data.runnerLevel,
+      daysPerWeek: parsed.data.daysPerWeek,
+    })
+  } catch (err) {
+    return { ok: false, error: prefsWriteErrorMessage(err) }
+  }
 
   return { ok: true }
 }

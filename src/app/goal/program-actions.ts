@@ -14,7 +14,11 @@ import {
 } from "@/lib/services/program.service"
 import { getActiveGoal } from "@/lib/services/goal.service"
 import { getAthleteTimezone, getActivePlanVersion } from "@/lib/services/plan.service"
-import { upsertUserPreferences, type TrainingMode } from "@/lib/services/userPreferences.service"
+import {
+  upsertUserPreferences,
+  prefsWriteErrorMessage,
+  type TrainingMode,
+} from "@/lib/services/userPreferences.service"
 import { resolveLocalDate } from "@/lib/plan/localDate"
 import { programBlueprintSchema } from "@/lib/validation/blueprint"
 import { blueprintToPlanJson, summarizeBlueprint, checkBlueprintSafety } from "@/lib/plan/blueprint"
@@ -130,8 +134,14 @@ export async function startProgram(
   ])
   const todayStr = resolveLocalDate(tz)
 
+  // Set the mode first: if this write fails, nothing has changed yet. The other
+  // order leaves a "just run" athlete with a new active plan the dashboard ignores.
+  try {
+    await upsertUserPreferences(userId, { trainingMode: "goal_program" })
+  } catch (err) {
+    return { ok: false, error: prefsWriteErrorMessage(err) }
+  }
   await activateProgram(userId, parsed.data, planJson, nextMonday(todayStr), tz, goal)
-  await upsertUserPreferences(userId, { trainingMode: "goal_program" })
 
   revalidatePath("/dashboard")
   revalidatePath("/plan")
@@ -165,7 +175,11 @@ export async function setTrainingMode(
     }
   }
 
-  await upsertUserPreferences(userId, { trainingMode: mode as TrainingMode })
+  try {
+    await upsertUserPreferences(userId, { trainingMode: mode as TrainingMode })
+  } catch (err) {
+    return { ok: false, error: prefsWriteErrorMessage(err) }
+  }
 
   revalidatePath("/settings")
   revalidatePath("/dashboard")
@@ -183,11 +197,15 @@ export async function saveProgramInputs(
   const parsed = inputsSchema.safeParse(rawInputs)
   if (!parsed.success) return { ok: false, error: "Invalid inputs" }
 
-  await upsertUserPreferences(session.user.id, {
-    runnerLevel: parsed.data.runnerLevel,
-    daysPerWeek: parsed.data.daysPerWeek,
-    longRunDay: parsed.data.longRunDay,
-  })
+  try {
+    await upsertUserPreferences(session.user.id, {
+      runnerLevel: parsed.data.runnerLevel,
+      daysPerWeek: parsed.data.daysPerWeek,
+      longRunDay: parsed.data.longRunDay,
+    })
+  } catch (err) {
+    return { ok: false, error: prefsWriteErrorMessage(err) }
+  }
   return { ok: true }
 }
 

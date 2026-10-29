@@ -1,147 +1,170 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-// This test exists because upsertUserPreferences shipped a real production
-// bug: it referenced max_hr unconditionally with no fallback, so any settings
-// save crashed on a database that hadn't run migration 0009 yet. These tests
-// pin down the fallback behavior on both the read and write side.
+// The schema probe decides which columns exist; these tests pin down what the
+// service does with that answer. A read never selects a missing column, and a
+// write never reports success for a field the database can't store. (The SQL
+// these paths generate was also run against real Postgres with max_hr absent:
+// drizzle's INSERT always names every schema column, which is why the update
+// path below exists.)
 
-const mockSelect = vi.fn()
-const mockInsert = vi.fn()
-
-vi.mock("@/lib/db", () => ({
-  db: { select: mockSelect, insert: mockInsert },
+let missing = new Set<string>()
+vi.mock("@/lib/db/schemaCapabilities", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/db/schemaCapabilities")>()),
+  missingColumns: vi.fn(async () => missing),
 }))
 
-const { getUserPreferences, upsertUserPreferences } = await import("./userPreferences.service")
+const selected: Array<Record<string, unknown>> = []
+const inserts: Array<{ values: Record<string, unknown>; set: Record<string, unknown> }> = []
+const updates: Array<Record<string, unknown>> = []
+let selectRows: unknown[] = []
+let selectError: Error | null = null
+let updatedRows: unknown[] = [{ id: "p1" }]
 
-function selectChain(rows: unknown[]) {
-  return { from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(() => Promise.resolve(rows)) })) })) }
-}
+vi.mock("@/lib/db", () => ({
+  db: {
+    select: vi.fn((fields: Record<string, unknown>) => {
+      selected.push(fields)
+      return {
+        from: () => ({
+          where: () => ({
+            limit: () => (selectError ? Promise.reject(selectError) : Promise.resolve(selectRows)),
+          }),
+        }),
+      }
+    }),
+    insert: vi.fn(() => ({
+      values: (values: Record<string, unknown>) => ({
+        onConflictDoUpdate: ({ set }: { set: Record<string, unknown> }) => {
+          inserts.push({ values, set })
+          return Promise.resolve()
+        },
+      }),
+    })),
+    update: vi.fn(() => ({
+      set: (set: Record<string, unknown>) => ({
+        where: () => ({
+          returning: () => {
+            updates.push(set)
+            return Promise.resolve(updatedRows)
+          },
+        }),
+      }),
+    })),
+  },
+}))
 
-function throwingSelectChain(message: string) {
-  return { from: vi.fn(() => { throw new Error(message) }) }
-}
+const { getUserPreferences, upsertUserPreferences, prefsWriteErrorMessage } = await import(
+  "./userPreferences.service"
+)
+const { SchemaDriftError } = await import("@/lib/db/schemaCapabilities")
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  missing = new Set()
+  selected.length = 0
+  inserts.length = 0
+  updates.length = 0
+  selectRows = []
+  selectError = null
+  updatedRows = [{ id: "p1" }]
 })
 
 describe("getUserPreferences", () => {
-  it("returns full prefs including maxHr on a fully migrated database", async () => {
-    mockSelect.mockReturnValueOnce(selectChain([{
-      unitsSystem: "metric", timezone: "UTC", trainingMode: "goal_program",
+  it("reads every preference in a single query on a complete schema", async () => {
+    selectRows = [{
+      unitsSystem: "metric", timezone: "UTC", trainingMode: "just_run",
       runnerLevel: "intermediate", daysPerWeek: 5, longRunDay: "Sunday", maxHr: 185,
-    }]))
+    }]
+    const prefs = await getUserPreferences("u1")
 
-    const prefs = await getUserPreferences("user-1")
-
-    expect(prefs.maxHr).toBe(185)
-    expect(prefs.unitsSystem).toBe("metric")
-  })
-
-  it("falls back to pre-0009 columns when max_hr does not exist, defaulting maxHr to null", async () => {
-    mockSelect
-      .mockReturnValueOnce(throwingSelectChain('column "max_hr" does not exist'))
-      .mockReturnValueOnce(selectChain([{
-        unitsSystem: "imperial", timezone: null, trainingMode: "just_run",
-        runnerLevel: "beginner", daysPerWeek: 3, longRunDay: null,
-      }]))
-
-    const prefs = await getUserPreferences("user-1")
-
-    expect(prefs.maxHr).toBeNull()
-    expect(prefs.trainingMode).toBe("just_run")
-  })
-
-  it("falls back further to pre-0008 columns when those are also missing", async () => {
-    mockSelect
-      .mockReturnValueOnce(throwingSelectChain('column "max_hr" does not exist'))
-      .mockReturnValueOnce(throwingSelectChain('column "training_mode" does not exist'))
-      .mockReturnValueOnce(selectChain([{ unitsSystem: "metric", timezone: "America/New_York" }]))
-
-    const prefs = await getUserPreferences("user-1")
-
-    expect(prefs.unitsSystem).toBe("metric")
-    expect(prefs.trainingMode).toBe("goal_program") // default, since that tier can't read it
-    expect(prefs.maxHr).toBeNull()
-  })
-
-  it("returns defaults when the user has no preferences row at all", async () => {
-    mockSelect.mockReturnValueOnce(selectChain([]))
-
-    const prefs = await getUserPreferences("user-1")
-
+    expect(selected).toHaveLength(1)
+    expect(Object.keys(selected[0])).toEqual([
+      "unitsSystem", "timezone", "trainingMode", "runnerLevel", "daysPerWeek", "longRunDay", "maxHr",
+    ])
     expect(prefs).toEqual({
+      unitsSystem: "metric", timezone: "UTC", trainingMode: "just_run",
+      runnerLevel: "intermediate", daysPerWeek: 5, longRunDay: "Sunday", maxHr: 185,
+    })
+  })
+
+  it("never selects a column the database lacks, and reads it as its default", async () => {
+    missing = new Set(["user_preferences.max_hr"])
+    selectRows = [{ unitsSystem: "imperial", timezone: null, trainingMode: "goal_program" }]
+    const prefs = await getUserPreferences("u1")
+
+    expect(Object.keys(selected[0])).not.toContain("maxHr")
+    expect(prefs.maxHr).toBeNull()
+    expect(prefs.trainingMode).toBe("goal_program")
+  })
+
+  it("returns defaults when the athlete has no preferences row", async () => {
+    expect(await getUserPreferences("u1")).toEqual({
       unitsSystem: "imperial", timezone: null, trainingMode: "goal_program",
       runnerLevel: null, daysPerWeek: null, longRunDay: null, maxHr: null,
     })
   })
+
+  it("propagates a genuine database error instead of masking it as defaults", async () => {
+    selectError = new Error("connection reset")
+    await expect(getUserPreferences("u1")).rejects.toThrow("connection reset")
+  })
 })
 
 describe("upsertUserPreferences", () => {
-  it("writes maxHr in a single attempt on a fully migrated database", async () => {
-    mockInsert.mockReturnValueOnce({
-      values: vi.fn(() => ({ onConflictDoUpdate: vi.fn(() => Promise.resolve()) })),
-    })
+  it("upserts only the given fields on a complete schema", async () => {
+    await upsertUserPreferences("u1", { timezone: "America/Los_Angeles" })
 
-    await upsertUserPreferences("user-1", { maxHr: 190 })
-
-    expect(mockInsert).toHaveBeenCalledTimes(1)
+    expect(inserts).toHaveLength(1)
+    expect(Object.keys(inserts[0].set).sort()).toEqual(["timezone", "updatedAt"])
+    expect(inserts[0].values).toMatchObject({ userId: "u1", timezone: "America/Los_Angeles" })
+    expect(updates).toHaveLength(0)
   })
 
-  /** Routes db.insert(...).values(...).onConflictDoUpdate(...) calls to a
-   *  per-attempt outcome list, recording every values() payload along the way. */
-  function mockCascade(outcomes: Array<"fail" | "succeed">, valuesCalls: unknown[]) {
-    let call = 0
-    mockInsert.mockImplementation(() => ({
-      values: vi.fn((v: unknown) => {
-        valuesCalls.push(v)
-        const outcome = outcomes[call]
-        call++
-        return {
-          onConflictDoUpdate: vi.fn(() => {
-            if (outcome === "fail") throw new Error("column does not exist")
-            return Promise.resolve()
-          }),
-        }
-      }),
-    }))
-  }
-
-  it("retries without maxHr when only migration 0009 is missing, so the rest of the save still succeeds", async () => {
-    const valuesCalls: unknown[] = []
-    mockCascade(["fail", "succeed"], valuesCalls)
-
-    await expect(
-      upsertUserPreferences("user-1", { unitsSystem: "metric", maxHr: 190 })
-    ).resolves.toBeUndefined()
-
-    expect(mockInsert).toHaveBeenCalledTimes(2)
-    expect(valuesCalls[0]).toHaveProperty("maxHr", 190)
-    expect(valuesCalls[1]).not.toHaveProperty("maxHr")
-    expect(valuesCalls[1]).toHaveProperty("unitsSystem", "metric")
-    expect(valuesCalls[1]).toHaveProperty("trainingMode")
+  it("passes null through, so a field can be cleared", async () => {
+    await upsertUserPreferences("u1", { maxHr: null })
+    expect(inserts[0].set).toHaveProperty("maxHr", null)
   })
 
-  it("falls back to core columns only when migrations 0008 and 0009 are both missing", async () => {
-    const valuesCalls: unknown[] = []
-    mockCascade(["fail", "fail", "succeed"], valuesCalls)
+  it("refuses to write a field whose column is missing, naming the migration, and writes nothing", async () => {
+    missing = new Set(["user_preferences.max_hr"])
+    const write = upsertUserPreferences("u1", { unitsSystem: "metric", maxHr: 190 })
 
-    await expect(
-      upsertUserPreferences("user-1", { unitsSystem: "metric", trainingMode: "just_run", maxHr: 190 })
-    ).resolves.toBeUndefined()
-
-    expect(mockInsert).toHaveBeenCalledTimes(3)
-    expect(valuesCalls[2]).not.toHaveProperty("maxHr")
-    expect(valuesCalls[2]).not.toHaveProperty("trainingMode")
-    expect(valuesCalls[2]).toHaveProperty("unitsSystem", "metric")
+    await expect(write).rejects.toBeInstanceOf(SchemaDriftError)
+    await expect(write).rejects.toThrow(
+      "Max heart rate can't be saved: the app's database is missing migration 0009_athlete_max_hr.",
+    )
+    expect(inserts).toHaveLength(0)
+    expect(updates).toHaveLength(0)
   })
 
-  it("propagates the error when even the core-only write fails", async () => {
-    const valuesCalls: unknown[] = []
-    mockCascade(["fail", "fail", "fail"], valuesCalls)
+  it("still saves unaffected fields while a column is missing, via an UPDATE", async () => {
+    missing = new Set(["user_preferences.max_hr"])
+    await upsertUserPreferences("u1", { timezone: "America/Los_Angeles" })
 
-    await expect(upsertUserPreferences("user-1", { maxHr: 190 })).rejects.toThrow("column does not exist")
-    expect(mockInsert).toHaveBeenCalledTimes(3)
+    expect(inserts).toHaveLength(0)
+    expect(Object.keys(updates[0]).sort()).toEqual(["timezone", "updatedAt"])
+  })
+
+  it("refuses to create a new row while a column is missing, since drizzle's INSERT needs every column", async () => {
+    missing = new Set(["user_preferences.max_hr"])
+    updatedRows = []
+    await expect(upsertUserPreferences("u1", { timezone: "UTC" })).rejects.toThrow(
+      "Your preferences can't be saved: the app's database is missing migration 0009_athlete_max_hr.",
+    )
+  })
+})
+
+describe("prefsWriteErrorMessage", () => {
+  it("shows a schema drift error as-is", () => {
+    const err = new SchemaDriftError(["0008_training_mode"], "Training mode")
+    expect(prefsWriteErrorMessage(err)).toBe(err.message)
+  })
+
+  it("logs any other error and shows a generic retry message", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(prefsWriteErrorMessage(new Error("connection reset"))).toBe(
+      "Couldn't save your preferences. Try again shortly.",
+    )
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
   })
 })
