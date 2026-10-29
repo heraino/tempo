@@ -14,9 +14,14 @@ import { fmtPace, fmtDistance, fmtNum } from "@/lib/fmt"
 import { computeReadiness, programContextFromPlanJson } from "@/lib/analytics/readiness"
 import { computePerformance } from "@/lib/analytics/performance"
 import { getActiveGoal } from "@/lib/services/goal.service"
-import { getUserPreferences } from "@/lib/services/userPreferences.service"
+import { getUserPreferences, DEFAULT_PREFS } from "@/lib/services/userPreferences.service"
 import { describeGoal, weeksBetween, daysBetween, fmtSessionTargets } from "@/lib/goals/goal"
 import type { NotebookEntry } from "@/app/workout/coach-actions"
+import { needsOnboarding } from "./onboardingGate"
+
+// About twenty queries plus first-load schedule generation. Declared so the
+// ceiling is a deliberate choice rather than the platform default.
+export const maxDuration = 30
 
 function KpiCard({
   label,
@@ -150,9 +155,21 @@ export default async function DashboardPage() {
 
   const sevenDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
+  // One failed query degrades its own section rather than the whole page. The
+  // labels name what's missing in the banner, so a failure is visible rather
+  // than looking like an empty section.
+  const failed: string[] = []
+  function orFallback<T>(label: string, query: PromiseLike<T>, fallback: T): Promise<T> {
+    return Promise.resolve(query).catch((err) => {
+      console.error(`[dashboard] ${label} failed to load:`, err)
+      failed.push(label)
+      return fallback
+    })
+  }
+
   const [scheduleResult, recentLogs, kpis, recentSnapshots, latestNotebook, trendWorkouts, wellnessRows, perf, activeGoal, dashPrefs, activePlanVersion] = await Promise.all([
-    getScheduleRange(userId, todayStr, 8),
-    db
+    orFallback("today's workout", getScheduleRange(userId, todayStr, 8), null),
+    orFallback("recent workouts", db
       .select({
         id: workoutLogs.id,
         sport: workoutLogs.sport,
@@ -168,9 +185,9 @@ export default async function DashboardPage() {
       .from(workoutLogs)
       .where(eq(workoutLogs.userId, userId))
       .orderBy(desc(workoutLogs.startTime))
-      .limit(10),
+      .limit(10), []),
     getKpiSnapshot(userId).catch(() => null),
-    db
+    orFallback("readiness history", db
       .select({ responseParsed: coachingAnalyses.responseParsed, createdAt: coachingAnalyses.createdAt })
       .from(coachingAnalyses)
       .where(and(
@@ -178,8 +195,8 @@ export default async function DashboardPage() {
         eq(coachingAnalyses.analysisType, "readiness_snapshot"),
       ))
       .orderBy(desc(coachingAnalyses.createdAt))
-      .limit(20),
-    db
+      .limit(20), []),
+    orFallback("coach's notebook", db
       .select({ responseParsed: coachingAnalyses.responseParsed, createdAt: coachingAnalyses.createdAt })
       .from(coachingAnalyses)
       .where(and(
@@ -187,8 +204,8 @@ export default async function DashboardPage() {
         eq(coachingAnalyses.analysisType, "notebook"),
       ))
       .orderBy(desc(coachingAnalyses.createdAt))
-      .limit(1),
-    db
+      .limit(1), []),
+    orFallback("training trends", db
       .select({
         startTime: workoutLogs.startTime,
         totalDistanceM: workoutLogs.totalDistanceM,
@@ -198,7 +215,7 @@ export default async function DashboardPage() {
       })
       .from(workoutLogs)
       .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startTime, ninetyDaysAgo)))
-      .orderBy(asc(workoutLogs.startTime)),
+      .orderBy(asc(workoutLogs.startTime)), []),
     // Last 8 days of wellness for readiness freshness modifier
     db
       .select({
@@ -227,11 +244,13 @@ export default async function DashboardPage() {
       }>),
     computePerformance(userId).catch(() => ({ ctl: null, atl: null, tsb: null })),
     getActiveGoal(userId).catch(() => null),
-    getUserPreferences(userId),
+    orFallback("your settings", getUserPreferences(userId), null),
     getActivePlanVersion(userId).catch(() => null),
   ])
 
-  const units = dashPrefs.unitsSystem as "imperial" | "metric"
+  const scheduleFailed = failed.includes("today's workout")
+  const prefs = dashPrefs ?? DEFAULT_PREFS
+  const units = prefs.unitsSystem as "imperial" | "metric"
   const programContext = activePlanVersion ? programContextFromPlanJson(activePlanVersion.planJson) : null
   const goalWeeksRemaining =
     activeGoal?.targetDate != null ? weeksBetween(todayStr, activeGoal.targetDate) : null
@@ -240,12 +259,14 @@ export default async function DashboardPage() {
 
   // "Just run" athletes have no schedule by design — the dashboard becomes a
   // tracker rather than a plan. Only program-following athletes are sent to
-  // onboarding when no plan exists.
-  const isJustRun = dashPrefs.trainingMode === "just_run"
-  if (!scheduleResult && !isJustRun) redirect("/onboarding")
+  // onboarding, and only when it's known they have no plan.
+  const isJustRun = prefs.trainingMode === "just_run"
+  const hasSchedule = scheduleResult != null
+  if (needsOnboarding({ hasSchedule, scheduleFailed, trainingMode: dashPrefs?.trainingMode ?? null })) {
+    redirect("/onboarding")
+  }
 
   const scheduledDays = scheduleResult?.scheduledDays ?? []
-  const hasSchedule = scheduleResult != null
   const todayDay = scheduledDays[0]
   const upcomingDays = scheduledDays.slice(1)
 
@@ -368,6 +389,25 @@ export default async function DashboardPage() {
           ) : (
             <p className="mt-4 text-sm text-gray-400">No schedule found for today.</p>
           )}
+        </section>
+      ) : scheduleFailed ? (
+        // Not "no schedule": that card invites building a new program, which
+        // would replace a plan that merely failed to load.
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Today&apos;s workout</h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Couldn&apos;t load your schedule right now. Refresh to try again.
+              </p>
+            </div>
+            <Link
+              href="/log"
+              className="shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+            >
+              + Log workout
+            </Link>
+          </div>
         </section>
       ) : (
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -838,6 +878,15 @@ export default async function DashboardPage() {
             })}
           </p>
         </div>
+
+        {failed.length > 0 && (
+          <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+            <p className="text-sm font-semibold text-amber-800">Some of your data didn&apos;t load</p>
+            <p className="text-sm text-amber-700 mt-0.5">
+              Missing: {failed.join(", ")}. Refresh to try again.
+            </p>
+          </div>
+        )}
 
         {/* Goal */}
         <Link
